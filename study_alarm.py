@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+import sys, threading
+from datetime import datetime
+from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QPushButton
+from PyQt6.QtCore import Qt, QTimer
+
+SCHEDULE = [
+    ("10:00", "공부 시작", "study"),
+    ("10:50", "휴식", "break"),
+    ("11:00", "공부 시작", "study"),
+    ("19:00", "완료!", "done"),
+]
+
+def parse_dt(hhmm):
+    h, m = map(int, hhmm.split(":"))
+    return datetime.now().replace(hour=h, minute=m, second=0, microsecond=0)
+
+class MainWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("공부 알람")
+        self.running = False
+        self._build()
+        self.setFixedSize(400, 600)
+        t = QTimer(self)
+        t.timeout.connect(self._tick)
+        t.start(1000)
+
+    def _build(self):
+        lo = QVBoxLayout(self)
+        self.title_lbl = QLabel("공부 알람 V1")
+        self.clock = QLabel("--:--:--")
+        lo.addWidget(self.title_lbl)
+        lo.addWidget(self.clock)
+        
+        self.btn = QPushButton("알람 시작")
+        self.btn.clicked.connect(self._toggle)
+        lo.addWidget(self.btn)
+
+    def _toggle(self):
+        self.running = not self.running
+        self.btn.setText("알람 중지" if self.running else "알람 시작")
+
+    def _tick(self):
+        self.clock.setText(datetime.now().strftime("%H:%M:%S"))
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    w = MainWindow()
+    w.show()
+    sys.exit(app.exec())
