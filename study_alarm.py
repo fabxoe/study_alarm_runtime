@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import sys, subprocess, threading
 from datetime import datetime
-from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QFrame
+from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QFrame, QComboBox, QSlider
 from PyQt6.QtCore import Qt, QTimer
 
 SCHEDULE = [
@@ -20,6 +20,7 @@ class MainWindow(QWidget):
         super().__init__()
         self.setWindowTitle("공부 알람")
         self.running = False
+        self.scale = 1.0
         self._build()
         self.setFixedSize(420, 680)
         t = QTimer(self)
