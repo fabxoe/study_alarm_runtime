@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QScrollArea, QFrame, QComboBox, QSlider, QCheckBox, QDialog
 )
-from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, pyqtProperty
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, pyqtProperty, pyqtSignal
 from PyQt6.QtGui import QPainter, QColor, QBrush
 
 SCHEDULE = [
@@ -158,8 +158,11 @@ class RowWidget(QFrame):
 
 
 class MainWindow(QWidget):
+    popup_requested = pyqtSignal(str, str)
+
     def __init__(self):
         super().__init__()
+        self.popup_requested.connect(self._show_qt_popup)
         self.setWindowTitle("공부 알람")
         self.scale = 1.0
         self.running = False
@@ -583,8 +586,8 @@ class MainWindow(QWidget):
         script = f'display notification "{m_flat}" with title "{t}"\n'
         subprocess.run(["osascript", "-e", script], capture_output=True)
 
-        # Native huge Qt popup executed on main thread safely
-        QTimer.singleShot(0, lambda: self._show_qt_popup(t, msg))
+        # Native huge Qt popup executed on main thread safely via Signal
+        self.popup_requested.emit(t, msg)
 
     def _show_qt_popup(self, title, msg):
         dlg = QDialog(self)
