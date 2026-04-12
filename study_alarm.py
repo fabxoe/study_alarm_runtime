@@ -165,7 +165,10 @@ class MainWindow(QWidget):
         self.running = False
         self.fired: set = set()
         self._build()
-        self.setFixedSize(420, 680)
+        self.setFixedWidth(420)
+        self.setMinimumHeight(300)
+        self.resize(420, 680)
+        QTimer.singleShot(0, self._update_max_height)
         t = QTimer(self)
         t.timeout.connect(self._tick)
         t.start(1000)
@@ -174,20 +177,24 @@ class MainWindow(QWidget):
         mod = event.modifiers()
         key = event.key()
         if mod == Qt.KeyboardModifier.MetaModifier:
+            old_scale = self.scale
             if key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
                 self.scale = min(SCALE_MAX, round(self.scale + SCALE_STEP, 1))
-                self._rescale()
             elif key == Qt.Key.Key_Minus:
                 self.scale = max(SCALE_MIN, round(self.scale - SCALE_STEP, 1))
-                self._rescale()
             elif key == Qt.Key.Key_0:
                 self.scale = 1.0
+            
+            if self.scale != old_scale:
+                h = int(self.height() * (self.scale / old_scale))
+                self.setFixedWidth(int(420 * self.scale))
+                self.setMinimumHeight(int(300 * self.scale))
+                self.resize(int(420 * self.scale), h)
                 self._rescale()
         super().keyPressEvent(event)
 
     def _rescale(self):
         s = self.scale
-        self.setFixedSize(int(420 * s), int(680 * s))
 
         self.title_lbl.setStyleSheet(
             f"font-family:Georgia;font-size:{int(22*s)}px;font-weight:bold;color:#1A1830;")
@@ -239,6 +246,24 @@ class MainWindow(QWidget):
 
         for row in self.rows:
             row.rescale(s)
+            
+        # UI 업데이트 지연시간 없이 레이아웃을 다시 계산하기 위해 스크롤을 풀어줍니다.
+        # sizeHint()는 비동기로 계산되므로 Qt 이벤트 루프 큐에 맡기는 것도 방법이지만, 직접 적용해봅니다.
+        # 다만 QTimer.singleShot(0, self._update_max_height) 이 더 안전합니다.
+        QTimer.singleShot(0, self._update_max_height)
+
+    def _update_max_height(self):
+        ih = self.scroll_inner.sizeHint().height()
+        
+        self.scroll_area.setMinimumHeight(ih)
+        self.scroll_area.setMaximumHeight(ih)
+        self.layout().activate()
+        max_h = self.sizeHint().height()
+        
+        self.scroll_area.setMinimumHeight(0)
+        self.scroll_area.setMaximumHeight(16777215)
+        
+        self.setMaximumHeight(max_h)
 
     def _combo_style(self, s):
         fs = int(12 * s)
@@ -383,6 +408,8 @@ class MainWindow(QWidget):
             ilo.addWidget(row); self.rows.append(row)
         ilo.addStretch()
         scroll.setWidget(inner)
+        self.scroll_area = scroll
+        self.scroll_inner = inner
         lo.addWidget(scroll)
         lo.addSpacing(12)
 
