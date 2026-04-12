@@ -45,8 +45,8 @@ class ToggleSwitch(QCheckBox):
         self._position = 1.0
         self.animation = QPropertyAnimation(self, b"position")
         self.animation.setDuration(150)
-        self.stateChanged.connect(self._on_state_change)
-        self.setFixedSize(36, 22)
+        self.toggled.connect(self._on_state_change)
+        self.setFixedSize(32, 18)
 
     @pyqtProperty(float)
     def position(self):
@@ -58,8 +58,13 @@ class ToggleSwitch(QCheckBox):
         self.update()
 
     def _on_state_change(self, value):
+        self.animation.stop()
+        self.animation.setStartValue(self._position)
         self.animation.setEndValue(1.0 if value else 0.0)
         self.animation.start()
+
+    def hitButton(self, pos):
+        return self.rect().contains(pos)
 
     def paintEvent(self, e):
         p = QPainter(self)
@@ -186,6 +191,11 @@ class MainWindow(QWidget):
 
         self.title_lbl.setStyleSheet(
             f"font-family:Georgia;font-size:{int(22*s)}px;font-weight:bold;color:#1A1830;")
+        
+        if hasattr(self, 'always_on_top_toggle'):
+            self.always_on_top_lbl.setStyleSheet(f"color:#8A87A8;font-size:{int(11*s)}px;font-weight:bold;")
+            self.always_on_top_toggle.setFixedSize(int(32*s), int(18*s))
+
         self.clock.setStyleSheet(
             f"font-size:{int(13*s)}px;color:#8A87A8;")
         self.cd_top_lbl.setStyleSheet(
@@ -215,7 +225,7 @@ class MainWindow(QWidget):
             f"color:#5B45E0;font-size:{int(12*s)}px;font-weight:bold;min-width:34px;")
         if hasattr(self, 'sound_toggle'):
             self.sound_toggle_lbl.setStyleSheet(f"color:#8A87A8;font-size:{int(11*s)}px;font-weight:bold;")
-            self.sound_toggle.setFixedSize(int(36*s), int(22*s))
+            self.sound_toggle.setFixedSize(int(32*s), int(18*s))
         self.btn.setFixedHeight(int(46 * s))
         self._style_btn(not self.running)
         if hasattr(self, 'test_delay_btn'):
@@ -292,9 +302,23 @@ class MainWindow(QWidget):
         self.title_lbl = QLabel("공부 알람")
         self.title_lbl.setStyleSheet(
             "font-family:Georgia;font-size:22px;font-weight:bold;color:#1A1830;")
+
+        self.always_on_top_lbl = QLabel("항상 위")
+        self.always_on_top_lbl.setStyleSheet("color:#8A87A8;font-size:11px;font-weight:bold;")
+        self.always_on_top_toggle = ToggleSwitch()
+        self.always_on_top_toggle.setChecked(False)
+        self.always_on_top_toggle.toggled.connect(self._toggle_always_on_top)
+
         self.clock = QLabel()
         self.clock.setStyleSheet("font-size:13px;color:#8A87A8;")
-        hdr.addWidget(self.title_lbl); hdr.addStretch(); hdr.addWidget(self.clock)
+        
+        hdr.addWidget(self.title_lbl)
+        hdr.addStretch()
+        hdr.addWidget(self.always_on_top_lbl)
+        hdr.addSpacing(10)
+        hdr.addWidget(self.always_on_top_toggle)
+        hdr.addSpacing(16)
+        hdr.addWidget(self.clock)
         lo.addLayout(hdr)
         lo.addSpacing(12)
 
@@ -414,7 +438,7 @@ class MainWindow(QWidget):
         self.sound_toggle_lbl = QLabel("소리 켬")
         self.sound_toggle_lbl.setStyleSheet("color:#8A87A8;font-size:11px;font-weight:bold;")
         vol_row.addWidget(self.sound_toggle_lbl)
-        vol_row.addSpacing(6)
+        vol_row.addSpacing(10)
 
         self.sound_toggle = ToggleSwitch()
         self.sound_toggle.setChecked(True)
@@ -542,6 +566,10 @@ class MainWindow(QWidget):
         self.test_delay_btn.setText("5초 뒤 팝업/소리 테스트")
         self.test_delay_btn.setEnabled(True)
         threading.Thread(target=self._popup, args=("테스트", "5초 대기 팝업 테스트입니다!", "done"), daemon=True).start()
+
+    def _toggle_always_on_top(self, checked):
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, checked)
+        self.show()
 
     def _test_sound(self):
         sound = self.sound_box.currentText()
