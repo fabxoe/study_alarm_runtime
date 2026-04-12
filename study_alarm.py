@@ -5,7 +5,7 @@ import sys, subprocess, threading
 from datetime import datetime
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QScrollArea, QFrame, QComboBox, QSlider, QCheckBox
+    QLabel, QPushButton, QScrollArea, QFrame, QComboBox, QSlider, QCheckBox, QDialog
 )
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, pyqtProperty
 from PyQt6.QtGui import QPainter, QColor, QBrush
@@ -579,10 +579,52 @@ class MainWindow(QWidget):
             v = volume / 100.0
             subprocess.Popen(["afplay", "-v", str(v), f"/System/Library/Sounds/{sound}.aiff"])
 
-        # system notification + dialog (removed sound name from notification to prevent double playing)
+        # system notification (removed osascript dialog to use PyQt custom dialog instead)
         script = f'display notification "{m_flat}" with title "{t}"\n'
-        script += f'display dialog "{m}" buttons {{"확인"}} default button 1 with title "{t}"'
         subprocess.run(["osascript", "-e", script], capture_output=True)
+
+        # Native huge Qt popup executed on main thread safely
+        QTimer.singleShot(0, lambda: self._show_qt_popup(t, msg))
+
+    def _show_qt_popup(self, title, msg):
+        dlg = QDialog(self)
+        dlg.setWindowTitle("알람")
+        dlg.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        dlg.setStyleSheet("background-color: white; border-radius: 12px;")
+        
+        lo = QVBoxLayout(dlg)
+        lo.setContentsMargins(40, 40, 40, 30)
+        lo.setSpacing(30)
+        
+        lbl_title = QLabel(title)
+        lbl_title.setStyleSheet("font-size: 50px; font-weight: bold; color: #1A1830;")
+        lbl_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        lbl_msg = QLabel(msg)
+        lbl_msg.setStyleSheet("font-size: 65px; color: #5B45E0; font-weight: bold;") 
+        lbl_msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        
+        lo.addWidget(lbl_title)
+        lo.addWidget(lbl_msg)
+        
+        btn = QPushButton("확인")
+        btn.setStyleSheet("""
+            QPushButton { 
+                background: #5B45E0; color: white; font-size: 30px; font-weight: bold; 
+                padding: 15px 30px; border-radius: 10px; border: none;
+            }
+            QPushButton:hover { background: #4835C0; }
+        """)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.clicked.connect(dlg.accept)
+        
+        btn_lo = QHBoxLayout()
+        btn_lo.addStretch()
+        btn_lo.addWidget(btn)
+        btn_lo.addStretch()
+        
+        lo.addLayout(btn_lo)
+        dlg.exec()
 
     def _start_delay_test(self):
         self.test_delay_btn.setText("5초 뒤에 팝업이 나타납니다...")
