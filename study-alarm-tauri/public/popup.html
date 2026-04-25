@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>알림</title>
+  <style>
+    :root {
+      --bg: #13121C;
+      --bg-panel: #1E1C2A;
+      --text-main: #FFFFFF;
+      --text-muted: #8A87A8;
+      --purple-main: #5B45E0;
+      --purple-glow: rgba(91, 69, 224, 0.4);
+      --border: #2A2838;
+      --border-focus: #3A3850;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #1A1926;
+      font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      width: 100vw;
+      user-select: none; /* 텍스트 선택 방지 */
+      -webkit-user-select: none;
+    }
+    .popup-container {
+      background: #1A1926;
+      border: none;
+      border-radius: 24px;
+      width: 100%;
+      height: 100%;
+      max-width: 300px;
+      padding: 20px;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center; /* 콘텐츠를 세로 중앙 정렬 */
+      text-align: center;
+      box-shadow: none;
+      cursor: default;
+      user-select: none;
+    }
+    .icon {
+      font-size: 64px;
+      margin-top: 10px;
+      margin-bottom: 20px;
+      filter: drop-shadow(0 4px 10px rgba(0,0,0,0.3));
+    }
+    .title {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text-main);
+      margin-bottom: 12px;
+    }
+    .message {
+      font-size: 15px;
+      color: var(--text-muted);
+      line-height: 1.4;
+      margin-bottom: 30px;
+    }
+    .btn {
+      width: 100%;
+      padding: 14px;
+      border-radius: 12px;
+      border: none;
+      font-size: 16px;
+      font-weight: 700;
+      color: white;
+      background: var(--purple-main);
+      box-shadow: 0 4px 15px var(--purple-glow);
+      cursor: pointer;
+      transition: 0.2s;
+    }
+    .btn:hover {
+      background: #6A56E6;
+      transform: translateY(-2px);
+    }
+    .btn:active {
+      transform: translateY(1px);
+    }
+  </style>
+</head>
+<body>
+  <!-- 팝업 컨테이너 전체를 드래그 가능 영역으로 설정 (버튼 제외) -->
+  <div class="popup-container">
+    <div class="icon" id="icon">⏰</div>
+    <div class="title" id="title">알림</div>
+    <div class="message" id="msg">내용이 없습니다.</div>
+    <button class="btn" id="close-btn">확인</button>
+  </div>
+
+  <script>
+    // URL 쿼리 파라미터 파싱
+    const params = new URLSearchParams(window.location.search);
+    const title = params.get('title') || '알림';
+    const msg = params.get('msg') || '';
+    const kind = params.get('kind') || 'info';
+
+    document.getElementById('title').textContent = title;
+    document.getElementById('msg').textContent = msg;
+
+    // 이모지 매핑
+    const icons = {
+      "study": "📚",
+      "break": "☕",
+      "lunch": "🍱",
+      "done": "🤝🏻",
+      "test": "🧪",
+      "info": "⏰"
+    };
+    document.getElementById('icon').textContent = icons[kind] || "⏰";
+
+    // 창 로드 즉시 포커스 요청 (첫 클릭에 버튼 동작하도록)
+    window.addEventListener('DOMContentLoaded', () => { window.focus(); });
+    window.focus();
+    try {
+      const tauri = window.__TAURI__;
+      if (tauri && tauri.window && tauri.window.getCurrentWindow) {
+        tauri.window.getCurrentWindow().setFocus();
+      } else if (tauri && tauri.webviewWindow && tauri.webviewWindow.getCurrentWebviewWindow) {
+        tauri.webviewWindow.getCurrentWebviewWindow().setFocus();
+      }
+    } catch(_) {}
+
+    async function closePopup() {
+      try {
+        const tauri = window.__TAURI__;
+        if (tauri) {
+          if (tauri.core && tauri.core.invoke) {
+            await tauri.core.invoke("stop_sound");
+          }
+          let win = null;
+          if (tauri.webviewWindow && tauri.webviewWindow.getCurrentWebviewWindow) {
+            win = tauri.webviewWindow.getCurrentWebviewWindow();
+          } else if (tauri.window && tauri.window.getCurrentWindow) {
+            win = tauri.window.getCurrentWindow();
+          }
+          if (win && win.close) {
+            await win.close();
+            return;
+          }
+        }
+      } catch(e) {
+        console.error("Close failed:", e);
+      }
+      window.close();
+    }
+
+    const btn = document.getElementById('close-btn');
+    btn.addEventListener('pointerdown', (e) => { e.preventDefault(); closePopup(); });
+
+    // Rust 기반 네이티브 드래그 호출 (가장 강력한 방법)
+    document.querySelector('.popup-container').addEventListener('mousedown', (e) => {
+      if (e.target.id !== 'close-btn') {
+        try {
+          const tauri = window.__TAURI__;
+          if (tauri && tauri.core && tauri.core.invoke) {
+            tauri.core.invoke("start_drag");
+          }
+        } catch (err) {
+          console.error("Native drag failed:", err);
+        }
+      }
+    });
+
+    // 화면이 완전히 준비되면 윈도우 표시 (100ms 지연으로 흰색 깜빡임 완전 차단)
+    setTimeout(() => {
+      try {
+        const tauri = window.__TAURI__;
+        if (tauri && tauri.core && tauri.core.invoke) {
+          tauri.core.invoke("show_window");
+        }
+      } catch (err) {
+        console.error("Window show failed:", err);
+      }
+    }, 100);
+  </script>
+</body>
+</html>

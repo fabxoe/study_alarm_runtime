@@ -59,11 +59,21 @@ export default function App() {
   const [volume, setVolume] = useState(80);
   const [statusMsg, setStatusMsg] = useState("⏸ 알람 비활성");
   const [zoomLevel, setZoomLevel] = useState(1.0);
+  const [showZoomSlider, setShowZoomSlider] = useState(false);
+  const [tempZoom, setTempZoom] = useState(1.0);
+
+  const handleZoomChange = (val: number) => setTempZoom(val);
+  const finalizeZoom = () => setZoomLevel(tempZoom);
+
+  useEffect(() => {
+    setTempZoom(zoomLevel);
+  }, [zoomLevel]);
 
   useEffect(() => {
     async function applyZoom() {
       try {
         const { invoke } = await import("@tauri-apps/api/core");
+        // pass is_compact as true if zoomed out enough or in flow mode?
         await invoke("set_zoom", { zoom: zoomLevel });
       } catch (e) {
         console.log("Zoom API failed", e);
@@ -235,17 +245,12 @@ export default function App() {
   const triggerAlarm = async (title: string, msg: string) => {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("trigger_alarm", { 
-        title, 
-        msg,
-        playSound,
-        soundName: soundFile,
-        volume,
-        loopSound: soundLoop
-      });
+      if (playSound) {
+        await invoke("play_sound", { soundName: soundFile, volume, loopSound: soundLoop });
+      }
+      await invoke("spawn_popup", { url: `popup.html?title=${encodeURIComponent(title)}&msg=${encodeURIComponent(msg)}&kind=info` });
     } catch (e) {
-      console.log("Not running in Tauri", e);
-      alert(`[알람] ${title}\n${msg}`);
+      console.log("Alarm trigger failed", e);
     }
   };
 
@@ -268,7 +273,38 @@ export default function App() {
   return (
     <div className="app">
       <div className="header">
-        <h1>공부 알람</h1>
+        <div className="header-left" style={{ display: 'flex', alignItems: 'center', gap: '15px', flex: 1 }}>
+          <span className="zoom-hint">⌘ + zoom in &nbsp;|&nbsp; ⌘ - zoom out</span>
+          <div className="header-slider-container">
+            <div className="slider-track-mini">
+              <input
+                type="range" min="0.4" max="2.0" step="0.1"
+                value={tempZoom}
+                onChange={(e) => handleZoomChange(parseFloat(e.target.value))}
+                onMouseUp={finalizeZoom}
+                className="slider-input-mini"
+              />
+              <div className="slider-center-line"></div>
+              <div 
+                className="slider-fill-mini" 
+                style={{
+                  left: tempZoom >= 1.0 ? '50%' : `${(tempZoom - 0.4) / 1.6 * 100}%`,
+                  width: `${Math.abs(tempZoom - 1.0) / 1.6 * 100}%`
+                }}
+              ></div>
+              <div className="tick-mini center" style={{ left: '50%' }}></div>
+              {Math.round(tempZoom * 10) !== 10 && (
+                <div 
+                  className="zoom-value-mini"
+                  style={{ left: `${(tempZoom - 0.4) / 1.6 * 100}%` }}
+                >
+                  {tempZoom > 1.0 ? `+${Math.round((tempZoom-1)*100)}%` : `-${Math.round((1-tempZoom)*100)}%`}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
         <div className="header-right">
           <span>항상 위</span>
           <input type="checkbox" className="toggle" checked={alwaysOnTop} onChange={e => setAlwaysOnTop(e.target.checked)} />

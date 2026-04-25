@@ -45,14 +45,100 @@ button {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  margin-bottom: 20px;
+  position: relative;
+  height: 40px;
 }
 
-.header h1 {
-  font-size: 22px;
-  font-weight: 700;
-  margin: 0;
-  color: var(--text-main);
-  letter-spacing: -0.5px;
+.zoom-hint {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--purple-light);
+  background: rgba(139, 92, 246, 0.1);
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  letter-spacing: 0.5px;
+}
+
+/* 헤더 내장형 줌 슬라이더 */
+.header-slider-container {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 140px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+}
+
+.slider-track-mini {
+  position: relative;
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+}
+
+.slider-input-mini {
+  position: absolute;
+  width: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  -webkit-appearance: none;
+  background: transparent;
+  z-index: 10;
+  cursor: pointer;
+}
+
+.slider-input-mini::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--purple-main);
+  box-shadow: 0 0 10px var(--purple-glow);
+}
+
+.slider-fill-mini {
+  position: absolute;
+  height: 100%;
+  background: var(--purple-main);
+  border-radius: 2px;
+}
+
+.slider-center-line {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.5);
+  top: -3px;
+  z-index: 1;
+}
+
+.tick-mini.center {
+  position: absolute;
+  width: 2px;
+  height: 8px;
+  background: var(--purple-light);
+  top: -2px;
+  transform: translateX(-50%);
+}
+
+.zoom-value-mini {
+  position: absolute;
+  top: -18px;
+  transform: translateX(-50%);
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: bold;
+  color: #fff;
+  text-shadow: 0 0 4px var(--purple-main);
+  white-space: nowrap;
 }
 
 .header-right {
@@ -224,10 +310,13 @@ button {
 .schedule-item {
   display: flex;
   align-items: center;
-  padding: 8px 12px;
+  padding: 10px 16px;
+  width: 100%;
+  flex-shrink: 0;
+  box-sizing: border-box;
   background: var(--bg-panel);
-  border-radius: 8px;
-  font-size: 13px;
+  border-radius: 10px;
+  font-size: 14px;
   font-weight: 500;
   border: 1px solid transparent;
   transition: 0.2s;

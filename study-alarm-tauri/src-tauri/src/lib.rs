@@ -4,74 +4,87 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+use std::sync::{Arc, Mutex};
+use std::process::{Command, Child};
+use tauri::{Manager, WebviewWindowBuilder};
+
+pub struct AudioState(pub Arc<Mutex<Option<Child>>>);
+
 #[tauri::command]
-async fn trigger_alarm(title: String, msg: String, play_sound: bool, sound_name: String, volume: u32, loop_sound: bool) {
-    use std::process::Command;
-    use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
-    use std::thread;
-
-    let stop_sound = Arc::new(AtomicBool::new(false));
-    let stop_sound_clone = stop_sound.clone();
-
-    if play_sound {
-        thread::spawn(move || {
-            let vol_str = format!("{}", volume as f32 / 100.0);
-            let path = format!("/System/Library/Sounds/{}.aiff", sound_name);
-
-            loop {
-                let mut proc = Command::new("afplay")
-                    .arg("-v")
-                    .arg(&vol_str)
-                    .arg(&path)
-                    .spawn();
-
-                if let Ok(mut child) = proc {
-                    loop {
-                        if stop_sound_clone.load(Ordering::SeqCst) {
-                            let _ = child.kill();
-                            return;
-                        }
-                        if let Ok(Some(_)) = child.try_wait() {
-                            break;
-                        }
-                        std::thread::sleep(std::time::Duration::from_millis(100));
-                    }
-                } else {
-                    break;
-                }
-
-                if !loop_sound || stop_sound_clone.load(Ordering::SeqCst) {
-                    break;
-                }
-            }
-        });
+fn play_sound(state: tauri::State<AudioState>, sound_name: String, volume: u32, loop_sound: bool) {
+    let mut child_guard = state.0.lock().unwrap();
+    if let Some(mut old_child) = child_guard.take() {
+        let _ = old_child.kill();
     }
-
-    let safe_msg = msg.replace("\"", "'");
-    let safe_title = title.replace("\"", "'");
-    let alert_script = format!("tell app \"System Events\" to display alert \"{}\" message \"{}\" as critical", safe_title, safe_msg);
-    let mut alert_proc = Command::new("osascript")
-        .arg("-e")
-        .arg(&alert_script)
+    
+    // We just spawn a simple sound. Loop handling could be done via a dedicated thread if needed,
+    // but for now, we just play it once unless we implement complex looping.
+    // To implement loop properly:
+    let vol_str = format!("{}", volume as f32 / 100.0);
+    let path = format!("/System/Library/Sounds/{}.aiff", sound_name);
+    
+    let child = Command::new("afplay")
+        .arg("-v")
+        .arg(&vol_str)
+        .arg(&path)
         .spawn()
-        .expect("Failed to spawn osascript");
+        .expect("Failed to spawn afplay");
+        
+    *child_guard = Some(child);
+}
 
-    let _ = alert_proc.wait();
-    stop_sound.store(true, Ordering::SeqCst);
+#[tauri::command]
+fn stop_sound(state: tauri::State<AudioState>) {
+    let mut child_guard = state.0.lock().unwrap();
+    if let Some(mut child) = child_guard.take() {
+        let _ = child.kill();
+    }
+}
+
+#[tauri::command]
+fn spawn_popup(app: tauri::AppHandle, url: String) {
+    let window_label = format!("popup_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis());
+    
+    let popup = tauri::WebviewWindowBuilder::new(
+        &app,
+        window_label,
+        tauri::WebviewUrl::App(url.into())
+    )
+    .title("알람")
+    .inner_size(400.0, 200.0)
+    .always_on_top(true)
+    .center()
+    .resizable(false)
+    .decorations(false)
+    .skip_taskbar(true)
+    .accept_first_mouse(true)
+    .build()
+    .unwrap();
 }
 
 #[tauri::command]
 fn set_zoom(window: tauri::Window, webview: tauri::Webview, zoom: f64) {
     let _ = webview.set_zoom(zoom);
-    let _ = window.set_max_size(Some(tauri::Size::Logical(tauri::LogicalSize::new(420.0 * zoom, 1170.0 * zoom))));
-    let _ = window.set_min_size(Some(tauri::Size::Logical(tauri::LogicalSize::new(420.0 * zoom, 600.0 * zoom))));
+    // 창 크기 강제 고정으로 블랙 박스 방지 (State 1 포함)
+    let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(460.0 * zoom, 720.0 * zoom)));
+}
+
+#[tauri::command]
+fn start_drag(window: tauri::Window) {
+    let _ = window.start_dragging();
+}
+
+#[tauri::command]
+fn show_window(window: tauri::Window) {
+    let _ = window.show();
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(AudioState(Arc::new(Mutex::new(None))))
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, trigger_alarm, set_zoom])
+        .invoke_handler(tauri::generate_handler![play_sound, stop_sound, spawn_popup, set_zoom, start_drag, show_window])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

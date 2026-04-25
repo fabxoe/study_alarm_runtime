@@ -13,12 +13,13 @@
     "windows": [
       {
         "title": "Bootcamp Scheduler",
-        "width": 420,
-        "height": 850,
-        "minWidth": 420,
-        "maxWidth": 420,
-        "minHeight": 600,
-        "maxHeight": 1170
+        "width": 460,
+        "height": 720,
+        "minWidth": 184,
+        "maxWidth": 920,
+        "minHeight": 200,
+        "maxHeight": 1440,
+        "acceptFirstMouse": true
       }
     ],
     "security": {

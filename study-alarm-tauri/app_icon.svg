@@ -1,0 +1,44 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Top Sand Gradient: Darker towards the bottom exit -->
+    <linearGradient id="topSandRefined" x1="512" y1="230" x2="512" y2="430" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#C084FC"/>
+      <stop offset="100%" stop-color="#7E22CE"/>
+    </linearGradient>
+
+    <!-- Bottom Sand Gradient: Darker towards the TOP (where the drop hits) -->
+    <!-- 타원의 중심이 아닌 상단 낙하지점을 중심으로 진하게 처리 -->
+    <radialGradient id="bottomSandImpactGradient" cx="512" cy="710" r="150" fx="512" fy="610" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6B21A8"/> <!-- Dark focus at the impact point -->
+      <stop offset="100%" stop-color="#A855F7"/> <!-- Lighter towards the edges -->
+    </radialGradient>
+  </defs>
+
+  <!-- macOS Style Background -->
+  <rect width="1024" height="1024" rx="220" fill="#0F0E16"/>
+  
+  <!-- Hourglass Plates (Top & Bottom) -->
+  <rect x="232" y="150" width="560" height="40" rx="20" fill="#7A5BEE"/>
+  <rect x="232" y="834" width="560" height="40" rx="20" fill="#7A5BEE"/>
+
+  <!-- Glass Body Fills (Slightly less transparent) -->
+  <path d="M282 190L392 460H632L742 190H282Z" fill="#7A5BEE" fill-opacity="0.25"/>
+  <path d="M282 834L392 564H632L742 834H282Z" fill="#7A5BEE" fill-opacity="0.25"/>
+
+  <!-- Main Hourglass Frame (Bold Trapezoid) -->
+  <path d="M282 190L392 460H632L742 190H282Z" stroke="#7A5BEE" stroke-width="24" stroke-linejoin="round"/>
+  <path d="M282 834L392 564H632L742 834H282Z" stroke="#7A5BEE" stroke-width="24" stroke-linejoin="round"/>
+  
+  <!-- Top Sand -->
+  <path d="M340 230L425 420H599L684 230H340Z" fill="url(#topSandRefined)"/>
+  
+  <!-- Bottom Sand (Focal point shifted UP towards the impact point) -->
+  <ellipse cx="512" cy="710" rx="150" ry="85" fill="url(#bottomSandImpactGradient)"/>
+  
+  <!-- The Center Drop -->
+  <circle cx="512" cy="512" r="28" fill="#B066FF"/>
+  <circle cx="512" cy="512" r="15" fill="#D8B4FE"/>
+
+  <!-- Subtle Rim Light -->
+  <path d="M242 160H782" stroke="white" stroke-width="4" stroke-opacity="0.2" stroke-linecap="round"/>
+</svg>
