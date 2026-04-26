@@ -200,7 +200,7 @@
       try {
         const tauri = window.__TAURI__;
         if (tauri && tauri.core && tauri.core.invoke) {
-          tauri.core.invoke("show-window");
+          tauri.core.invoke("show_window");
         }
       } catch (err) {
         console.error("Window show failed:", err);

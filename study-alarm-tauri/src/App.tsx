@@ -334,6 +334,9 @@ export default function App() {
         resizable: false,
         decorations: false,
         skipTaskbar: true,
+        visible: false, // 처음에는 숨김
+        shadow: true,
+        backgroundColor: '#1A1926',
       });
     } catch (e) {
       console.log("Alarm trigger failed", e);

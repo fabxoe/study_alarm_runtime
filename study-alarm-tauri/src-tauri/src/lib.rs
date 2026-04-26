@@ -4,6 +4,12 @@ use std::sync::{Arc, Mutex};
 
 pub struct AudioState(pub Arc<Mutex<Option<Child>>>);
 
+#[tauri::command]
+fn show_window(window: tauri::Window) {
+    window.show().unwrap();
+}
+
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let audio_state = AudioState(Arc::new(Mutex::new(None)));
@@ -82,6 +88,7 @@ pub fn run() {
             Ok(())
         })
         .plugin(tauri_plugin_opener::init())
+        .invoke_handler(tauri::generate_handler![show_window])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
