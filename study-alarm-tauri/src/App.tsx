@@ -99,6 +99,13 @@ export default function App() {
   const [volume, setVolume] = useState(80);
   const [statusMsg, setStatusMsg] = useState("⏸ 알람 비활성");
   const [zoomLevel, setZoomLevel] = useState(1.0);
+  
+  // 수학적 일관성을 위한 기준 높이 정의 (줌 1.0일 때의 논리적 높이)
+  const MIN_BASE_HEIGHT = 550; // 하단 그룹 전체가 잘림 없이 완벽히 보존되는 최소 높이 (패딩 보정 반영)
+  const BASE_HEIGHTS = {
+    flow: 620,      // 플로우 설정이 다 보이는 편안한 높이
+    schedule: 720   // 스케줄이 적당히 보이는 높이
+  };
 
 
 
@@ -114,20 +121,46 @@ export default function App() {
       const size = await win.innerSize();
       const logicalHeight = size.height / factor;
       
-      // 창 높이 보존을 위한 여유 높이 계산
       const prevZoom = Number(document.body.style.zoom || 1);
-      const extraH = Math.max(0, (logicalHeight / prevZoom) - 720);
+      const baseHBefore = isFlowMode ? BASE_HEIGHTS.flow : BASE_HEIGHTS.schedule;
+      const extraH = Math.max(0, (logicalHeight / prevZoom) - baseHBefore);
 
-      // 2. 절대 불변의 수학적 규칙 적용 (Base Height * Zoom)
-      // DOM 측정 타이밍 오차로 인한 화면 잘림을 원천 차단
-      // 520은 시계창과 플로우 버튼, 하단 인터페이스를 모두 안전하게 담는 줌 1.0 기준 최소 높이입니다.
-      const BASE_MIN_HEIGHT = 520;
-      const calculatedMinH = BASE_MIN_HEIGHT * zoom;
+      // 2. 동적 측정 (Dynamic Measurement)
+      // 상단 고정 영역들과 하단 그룹의 실제 높이를 측정하여 합산합니다.
+      const statusEl = document.querySelector('.status') as HTMLElement;
+      const timerEl = document.querySelector('.timer-card') as HTMLElement;
+      const modeEl = document.querySelector('.mode-row') as HTMLElement;
+      const bottomEl = document.querySelector('.bottom-group') as HTMLElement;
+      const headerEl = document.querySelector('.header') as HTMLElement;
+      const flowWidgetEl = document.querySelector('.flow-widget') as HTMLElement; // 플로우 설정창 추가
+
+      let measuredMinH = 550; // 기본 안전값
+      let measuredMaxH = 2000; // 기본 안전값
+
+      if (statusEl && timerEl && modeEl && bottomEl && headerEl) {
+        const topH = headerEl.offsetHeight + statusEl.offsetHeight + timerEl.offsetHeight + modeEl.offsetHeight;
+        const bottomH = bottomEl.offsetHeight;
+        
+        // 1. 최소 높이 계산 (플로우 모드 고려)
+        const flowH = flowWidgetEl ? flowWidgetEl.offsetHeight : 0;
+        measuredMinH = topH + flowH + bottomH + 20;
+
+        // 2. 최대 높이 계산 (메인 콘텐츠 고려)
+        const mainContentEl = document.querySelector('.main-content') as HTMLElement;
+        if (mainContentEl) {
+          const contentH = mainContentEl.scrollHeight;
+          measuredMaxH = topH + contentH + bottomH + 20;
+        }
+      }
+
+      const currentBaseH = isFlowMode ? BASE_HEIGHTS.flow : BASE_HEIGHTS.schedule;
 
       await emit("setzoom-event", { 
         zoom, 
         extraHeight: extraH,
-        minHeight: calculatedMinH
+        minHeight: measuredMinH,
+        maxHeight: measuredMaxH,
+        baseHeight: currentBaseH
       });
     } catch (e) {
       console.log("Zoom API failed", e);
@@ -136,7 +169,7 @@ export default function App() {
 
   useEffect(() => {
     applyZoom(zoomLevel);
-  }, [zoomLevel]);
+  }, [zoomLevel, isFlowMode]); // 모드 전환 시에도 높이 제약 조건 즉시 갱신
 
   // 초기 렌더링 시에도 즉시 적용되도록 보장
   useEffect(() => {
@@ -207,7 +240,7 @@ export default function App() {
       SCHEDULE.forEach((item, idx) => {
         if (!firedAlarms.current.has(idx) && parseTime(item.time) <= now) {
           firedAlarms.current.add(idx);
-          triggerAlarm(item.title, `현재 시간: ${item.time}`);
+          triggerAlarm(item.title, `현재 시간: ${item.time}`, item.type);
         }
       });
     }
@@ -239,7 +272,7 @@ export default function App() {
     end.setMinutes(end.getMinutes() + mins);
     setFlowState(state);
     setFlowEndTime(end);
-    triggerAlarm(`${state === "study" ? "공부" : "휴식"} 시작`, `${mins}분간 집중하세요!`);
+    triggerAlarm(`${state === "study" ? "공부" : "휴식"} 시작`, `${mins}분간 ${state === "study" ? "집중" : "휴식"}하세요!`, state);
     
     const phaseTxt = `${state === "study" ? "📖 공부 중..." : "☕ 휴식 중..."} → ${mins}분 후 ${state === "study" ? "휴식" : "공부"}`;
     setNextLabel(phaseTxt);
@@ -282,7 +315,8 @@ export default function App() {
       const logical = size.toLogical(factor);
       
       const currentHeight = logical.height;
-      const targetHeight = toFlowMode ? 730 * zoomLevel : 1170 * zoomLevel;
+      const baseH = toFlowMode ? BASE_HEIGHTS.flow : BASE_HEIGHTS.schedule;
+      const targetHeight = baseH * zoomLevel;
       const diff = targetHeight - currentHeight;
       
       const steps = 25;
@@ -306,7 +340,7 @@ export default function App() {
     }
   };
 
-  const triggerAlarm = async (title: string, msg: string) => {
+  const triggerAlarm = async (title: string, msg: string, kind?: string) => {
     try {
       if (playSound) {
         const { emit } = await import("@tauri-apps/api/event");
@@ -316,7 +350,7 @@ export default function App() {
       const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
       const label = `popup_${Date.now()}`;
       new WebviewWindow(label, {
-        url: `popup.html?title=${encodeURIComponent(title)}&msg=${encodeURIComponent(msg)}&kind=${title === '테스트' ? 'test' : 'info'}`,
+        url: `popup.html?title=${encodeURIComponent(title)}&msg=${encodeURIComponent(msg)}&kind=${kind || (title === '테스트' ? 'test' : 'info')}`,
         title: "알람",
         width: 280,
         height: 320, // 260에서 320으로 늘려 잘림 방지 및 예시 이미지 비율 구현
@@ -404,45 +438,46 @@ export default function App() {
           {isFlowMode ? "스케줄 모드" : "플로우 모드"}
         </button>
       </div>
-
-      {!isFlowMode ? (
-        <div className="list-container">
-          {SCHEDULE.map((item, idx) => (
-            <div key={idx} className={`schedule-item ${item.type} ${idx === activeIdx ? 'active' : ''}`}>
-              <div className="item-time">{item.time}</div>
-              <div className="item-title">{item.title}</div>
-              <div className="badge">{item.label}</div>
+      <div className="main-content">
+        {!isFlowMode ? (
+          <div className="list-container">
+            {SCHEDULE.map((item, idx) => (
+              <div key={idx} className={`schedule-item ${item.type} ${idx === activeIdx ? 'active' : ''}`}>
+                <div className="item-time">{item.time}</div>
+                <div className="item-title">{item.title}</div>
+                <div className="badge">{item.label}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="flow-widget">
+            <div className="flow-title">플로우 모드</div>
+            <div className="flow-row">
+              <div className="flow-label study">📖 공부 시간</div>
+              <CustomSelect 
+                value={flowStudyMins} 
+                options={[10,20,30,40,50,60]} 
+                onChange={(val) => setFlowStudyMins(Number(val))} 
+                disabled={isRunning} 
+              />
+              <span>분</span>
             </div>
-          ))}
-        </div>
-      ) : (
-        <div className="flow-widget">
-          <div className="flow-title">플로우 모드</div>
-          <div className="flow-row">
-            <div className="flow-label study">📖 공부 시간</div>
-            <CustomSelect 
-              value={flowStudyMins} 
-              options={[10,20,30,40,50,60]} 
-              onChange={(val) => setFlowStudyMins(Number(val))} 
-              disabled={isRunning} 
-            />
-            <span>분</span>
+            <div className="flow-row">
+              <div className="flow-label break">☕ 쉬는 시간</div>
+              <CustomSelect 
+                value={flowBreakMins} 
+                options={[10,20,30,40,50,60]} 
+                onChange={(val) => setFlowBreakMins(Number(val))} 
+                disabled={isRunning} 
+              />
+              <span>분</span>
+            </div>
+            <div className="flow-phase">
+              {isRunning ? (flowState === 'study' ? '📖 공부 중... → 휴식' : '☕ 휴식 중... → 공부') : '시작 버튼을 눌러주세요'}
+            </div>
           </div>
-          <div className="flow-row">
-            <div className="flow-label break">☕ 쉬는 시간</div>
-            <CustomSelect 
-              value={flowBreakMins} 
-              options={[10,20,30,40,50,60]} 
-              onChange={(val) => setFlowBreakMins(Number(val))} 
-              disabled={isRunning} 
-            />
-            <span>분</span>
-          </div>
-          <div className="flow-phase">
-            {isRunning ? (flowState === 'study' ? '📖 공부 중... → 휴식' : '☕ 휴식 중... → 공부') : '시작 버튼을 눌러주세요'}
-          </div>
-        </div>
-      )}
+        )}
+      </div> {/* main-content 끝 */}
 
       <div className="bottom-group">
         <div className="settings-panel">

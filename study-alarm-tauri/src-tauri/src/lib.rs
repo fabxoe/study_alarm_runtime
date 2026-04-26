@@ -17,28 +17,36 @@ pub fn run() {
             
             // 초기 윈도우 제약 조건 설정 (460x580) - 하단 인터페이스 보호를 위해 상향
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.set_min_size(Some(tauri::Size::Logical(tauri::LogicalSize::new(460.0, 580.0))));
+                let _ = window.set_min_size(Some(tauri::Size::Logical(tauri::LogicalSize::new(460.0, 550.0))));
+                let _ = window.set_max_size(Some(tauri::Size::Logical(tauri::LogicalSize::new(460.0, 2000.0))));
             }
             
             // 줌 조절 이벤트 리스너
             app.listen_any("setzoom-event", move |event| {
                 #[derive(serde::Deserialize)]
-                struct ZoomPayload { zoom: f64, extraHeight: f64, minHeight: f64 }
+                #[serde(rename_all = "camelCase")]
+                struct ZoomPayload { 
+                    zoom: f64, 
+                    extra_height: f64, 
+                    min_height: f64, 
+                    max_height: f64,
+                    base_height: f64 
+                }
                 
                 if let Ok(payload) = serde_json::from_str::<ZoomPayload>(event.payload()) {
                     if let Some(window) = app_handle.get_webview_window("main") {
                         let zoom = payload.zoom;
-                        let extra_h = payload.extraHeight;
-                        let min_h = payload.minHeight;
+                        let extra_h = payload.extra_height;
+                        let min_h = payload.min_height;
+                        let max_h = payload.max_height;
+                        let base_h = payload.base_height;
 
                         let base_w = 460.0;
-                        let base_h = 720.0;
-                        
                         let new_w = base_w * zoom;
                         let new_h = (base_h + extra_h) * zoom;
 
                         let _ = window.set_min_size(Some(tauri::Size::Logical(tauri::LogicalSize::new(new_w, min_h))));
-                        let _ = window.set_max_size(Some(tauri::Size::Logical(tauri::LogicalSize::new(new_w, 2000.0))));
+                        let _ = window.set_max_size(Some(tauri::Size::Logical(tauri::LogicalSize::new(new_w, max_h))));
                         let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(new_w, new_h)));
                     }
                 }
