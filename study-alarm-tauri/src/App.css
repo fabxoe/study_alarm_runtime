@@ -481,6 +481,11 @@ button {
   flex-direction: column;
   flex-shrink: 0;
   margin-top: auto;
+  position: sticky;
+  bottom: 0;
+  background-color: var(--bg); /* 덮을 때 뒤 요소가 안 보이게 배경색 지정 */
+  z-index: 10;
+  padding-top: 4px; /* 덮을 때 약간의 여유 */
 }
 
 .settings-panel {

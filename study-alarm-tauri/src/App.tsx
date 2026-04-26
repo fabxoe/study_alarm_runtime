@@ -104,24 +104,25 @@ export default function App() {
 
   const applyZoom = async (zoom: number) => {
     try {
+      // 1. DOM에 줌 적용
       (document.body.style as any).zoom = zoom.toString();
+      
       const { emit } = await import("@tauri-apps/api/event");
       const { getCurrentWindow } = await import("@tauri-apps/api/window");
       const win = getCurrentWindow();
       const factor = await win.scaleFactor();
       const size = await win.innerSize();
       const logicalHeight = size.height / factor;
+      
+      // 창 높이 보존을 위한 여유 높이 계산
       const prevZoom = Number(document.body.style.zoom || 1);
       const extraH = Math.max(0, (logicalHeight / prevZoom) - 720);
 
-      const headerH = document.querySelector('.header')?.getBoundingClientRect().height || 40;
-      const statusH = document.querySelector('.status')?.getBoundingClientRect().height || 26;
-      const timerH = document.querySelector('.timer-card')?.getBoundingClientRect().height || 180;
-      const modeH = document.querySelector('.mode-row')?.getBoundingClientRect().height || 46;
-      const bottomGroupH = document.querySelector('.bottom-group')?.getBoundingClientRect().height || 220;
-      
-      // 전체 높이 = 상단 영역들 + 하단 그룹 전체 + 컨테이너 패딩 및 충분한 여유분(105px)
-      const calculatedMinH = (headerH + statusH + timerH + modeH + bottomGroupH + 105);
+      // 2. 절대 불변의 수학적 규칙 적용 (Base Height * Zoom)
+      // DOM 측정 타이밍 오차로 인한 화면 잘림을 원천 차단
+      // 520은 시계창과 플로우 버튼, 하단 인터페이스를 모두 안전하게 담는 줌 1.0 기준 최소 높이입니다.
+      const BASE_MIN_HEIGHT = 520;
+      const calculatedMinH = BASE_MIN_HEIGHT * zoom;
 
       await emit("setzoom-event", { 
         zoom, 
