@@ -123,13 +123,13 @@ export default function App() {
       if (!appEl) return;
 
       // 레이아웃 업데이트 대기 후 실제 컨텐츠 높이 측정
-      const naturalH = appEl.scrollHeight;
+      // 가려짐을 완전히 방지하기 위해 버퍼를 20px로 증설합니다.
+      const naturalH = Math.ceil(appEl.scrollHeight + 20);
       
-      // 플로우 모드 고정 높이 560px (좀 더 타이트하게)
-      const flowHeight = Math.ceil(560 * zoom);
-      const targetHeight = isFlowMode ? flowHeight : Math.ceil(Math.min(950 * zoom, naturalH));
-      const minHeight = isFlowMode ? flowHeight : Math.ceil(650 * zoom);
-      const maxHeight = isFlowMode ? flowHeight : Math.ceil(2000 * zoom); 
+      // 플로우 모드에서는 최소 600px 이상을 유지하도록 안전장치 상향
+      const targetHeight = isFlowMode ? Math.max(Math.ceil(600 * zoom), naturalH) : Math.ceil(Math.min(950 * zoom, naturalH));
+      const minHeight = targetHeight;
+      const maxHeight = isFlowMode ? targetHeight : Math.ceil(2000 * zoom); 
 
       const resizableFlag = !isFlowMode;
       console.log(`[Resize] Mode: ${isFlowMode ? 'Flow' : 'Schedule'}, Target: ${targetHeight}, Resizable: ${resizableFlag}`);
