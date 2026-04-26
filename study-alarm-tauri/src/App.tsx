@@ -473,7 +473,7 @@ export default function App() {
               <span>분</span>
             </div>
             <div className="flow-phase">
-              {isRunning ? (flowState === 'study' ? '📖 공부 중... → 휴식' : '☕ 휴식 중... → 공부') : '시작 버튼을 눌러주세요'}
+              {isRunning && (flowState === 'study' ? '📖 공부 중... → 휴식' : '☕ 휴식 중... → 공부')}
             </div>
           </div>
         )}
