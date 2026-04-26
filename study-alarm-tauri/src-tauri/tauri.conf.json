@@ -10,15 +10,17 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Bootcamp Scheduler",
+        "title": "RunTime",
         "width": 460,
         "height": 720,
-        "minWidth": 184,
-        "maxWidth": 920,
-        "minHeight": 200,
-        "maxHeight": 1440,
+        "minWidth": 100,
+        "maxWidth": 2000,
+        "minHeight": 400,
+        "maxHeight": 2000,
+        "resizable": true,
         "acceptFirstMouse": true
       }
     ],

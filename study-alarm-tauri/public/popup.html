@@ -29,53 +29,80 @@
       -webkit-user-select: none;
     }
     .popup-container {
-      background: #1A1926;
-      border: none;
-      border-radius: 24px;
+      position: relative;
       width: 100%;
       height: 100%;
-      max-width: 300px;
-      padding: 20px;
-      box-sizing: border-box;
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center; /* 콘텐츠를 세로 중앙 정렬 */
+      justify-content: center;
       text-align: center;
-      box-shadow: none;
-      cursor: default;
-      user-select: none;
+      overflow: hidden;
+      border-radius: 24px;
+      background: #1A1926;
     }
-    .icon {
-      font-size: 64px;
-      margin-top: 10px;
-      margin-bottom: 20px;
-      filter: drop-shadow(0 4px 10px rgba(0,0,0,0.3));
+    .drag-layer {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1; /* 드래그 영역은 아래에 */
+    }
+    .content-layer {
+      position: absolute;
+      z-index: 10;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center; /* 다시 중앙 집중 배치 */
+      padding: 25px 20px;
+      box-sizing: border-box;
+      text-align: center;
+      gap: 12px; /* 적절한 간격 복구 */
+      pointer-events: none;
+    }
+    .icon-area {
+      font-size: 70px; /* 60px에서 약간 상향 */
+      margin-bottom: 5px;
+      filter: drop-shadow(0 0 20px rgba(255, 255, 255, 0.1));
+    }
+    .icon-img {
+      width: 80px;
+      height: 80px;
+      object-fit: contain;
     }
     .title {
-      font-size: 22px;
+      font-size: 20px; /* 18px에서 약간 상향 */
       font-weight: 700;
       color: var(--text-main);
-      margin-bottom: 12px;
+      margin: 0;
     }
     .message {
-      font-size: 15px;
+      font-size: 14px; /* 13px에서 약간 상향 */
       color: var(--text-muted);
       line-height: 1.4;
-      margin-bottom: 30px;
+      margin: 0;
+      padding: 0 10px;
     }
     .btn {
-      width: 100%;
-      padding: 14px;
-      border-radius: 12px;
+      width: 90%;
+      padding: 15px; /* 12px에서 상향 */
+      border-radius: 14px;
       border: none;
-      font-size: 16px;
+      font-size: 15px;
       font-weight: 700;
       color: white;
       background: var(--purple-main);
       box-shadow: 0 4px 15px var(--purple-glow);
       cursor: pointer;
       transition: 0.2s;
+      margin-top: 10px; /* 버튼 위쪽 공간 확보 */
+      position: relative;
+      z-index: 10;
+      pointer-events: auto; /* 드래그 영역 위에서도 클릭 가능하게 */
     }
     .btn:hover {
       background: #6A56E6;
@@ -89,21 +116,35 @@
 <body>
   <!-- 팝업 컨테이너 전체를 드래그 가능 영역으로 설정 (버튼 제외) -->
   <div class="popup-container">
-    <div class="icon" id="icon">⏰</div>
-    <div class="title" id="title">알림</div>
-    <div class="message" id="msg">내용이 없습니다.</div>
-    <button class="btn" id="close-btn">확인</button>
+    <!-- 창 전체 드래그를 위한 레이어 -->
+    <div class="drag-layer" data-tauri-drag-region></div>
+    
+    <!-- 실제 상호작용을 위한 콘텐츠 레이어 -->
+    <div class="content-layer">
+    <div class="icon-area" id="icon">⏰</div>
+    <h1 class="title" id="title">알람</h1>
+    <p class="message" id="message">시간이 되었습니다.</p>
+    <button class="btn" id="confirmBtn" onclick="handleBtnClick(this)">확인</button>
   </div>
 
   <script>
-    // URL 쿼리 파라미터 파싱
+    // URL 파라미터 읽기
     const params = new URLSearchParams(window.location.search);
-    const title = params.get('title') || '알림';
-    const msg = params.get('msg') || '';
+    const title = params.get('title') || '알람';
+    const msg = params.get('msg') || '시간이 되었습니다.';
     const kind = params.get('kind') || 'info';
 
-    document.getElementById('title').textContent = title;
-    document.getElementById('msg').textContent = msg;
+    document.getElementById('title').innerText = title;
+    document.getElementById('message').innerText = msg;
+
+    // 종류에 따른 아이콘 설정
+    const iconEl = document.getElementById('icon');
+    if (kind === 'test') {
+      iconEl.innerText = '🧪'; // 시약병 아이콘
+      iconEl.style.fontSize = '90px'; // 시약병은 조금 더 크게
+    } else {
+      iconEl.innerText = '⏰'; // 기본 시계 아이콘
+    }
 
     // 이모지 매핑
     const icons = {
@@ -131,50 +172,35 @@
     async function closePopup() {
       try {
         const tauri = window.__TAURI__;
-        if (tauri) {
-          if (tauri.core && tauri.core.invoke) {
-            await tauri.core.invoke("stop_sound");
-          }
-          let win = null;
-          if (tauri.webviewWindow && tauri.webviewWindow.getCurrentWebviewWindow) {
-            win = tauri.webviewWindow.getCurrentWebviewWindow();
-          } else if (tauri.window && tauri.window.getCurrentWindow) {
-            win = tauri.window.getCurrentWindow();
-          }
-          if (win && win.close) {
-            await win.close();
-            return;
-          }
+        if (tauri && tauri.event && tauri.event.emit) {
+          await tauri.event.emit("stopsound");
+        }
+        if (tauri && tauri.window && tauri.window.getCurrentWindow) {
+          const win = tauri.window.getCurrentWindow();
+          await win.close();
+        } else {
+          window.close();
         }
       } catch(e) {
         console.error("Close failed:", e);
+        window.close();
       }
-      window.close();
     }
 
-    const btn = document.getElementById('close-btn');
-    btn.addEventListener('pointerdown', (e) => { e.preventDefault(); closePopup(); });
+    function handleBtnClick(el) {
+      el.textContent = "닫는 중...";
+      el.style.opacity = "0.5";
+      closePopup();
+    }
 
-    // Rust 기반 네이티브 드래그 호출 (가장 강력한 방법)
-    document.querySelector('.popup-container').addEventListener('mousedown', (e) => {
-      if (e.target.id !== 'close-btn') {
-        try {
-          const tauri = window.__TAURI__;
-          if (tauri && tauri.core && tauri.core.invoke) {
-            tauri.core.invoke("start_drag");
-          }
-        } catch (err) {
-          console.error("Native drag failed:", err);
-        }
-      }
-    });
+
 
     // 화면이 완전히 준비되면 윈도우 표시 (100ms 지연으로 흰색 깜빡임 완전 차단)
     setTimeout(() => {
       try {
         const tauri = window.__TAURI__;
         if (tauri && tauri.core && tauri.core.invoke) {
-          tauri.core.invoke("show_window");
+          tauri.core.invoke("show-window");
         }
       } catch (err) {
         console.error("Window show failed:", err);

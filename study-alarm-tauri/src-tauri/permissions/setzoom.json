@@ -1,0 +1,7 @@
+{
+  "identifier": "allow-setzoom",
+  "description": "Allows calling the setzoom command",
+  "commands": [
+    "setzoom"
+  ]
+}
