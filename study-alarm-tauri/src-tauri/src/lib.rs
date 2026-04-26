@@ -27,27 +27,29 @@ pub fn run() {
                 #[serde(rename_all = "camelCase")]
                 struct ZoomPayload { 
                     zoom: f64, 
-                    extra_height: f64, 
                     min_height: f64, 
                     max_height: f64,
-                    base_height: f64 
+                    target_height: f64,
+                    resizable: bool
                 }
                 
                 if let Ok(payload) = serde_json::from_str::<ZoomPayload>(event.payload()) {
                     if let Some(window) = app_handle.get_webview_window("main") {
                         let zoom = payload.zoom;
-                        let extra_h = payload.extra_height;
                         let min_h = payload.min_height;
                         let max_h = payload.max_height;
-                        let base_h = payload.base_height;
+                        let target_h = payload.target_height;
+                        let resizable = payload.resizable;
 
                         let base_w = 460.0;
                         let new_w = base_w * zoom;
-                        let new_h = (base_h + extra_h) * zoom;
 
+                        // 제약 조건 및 리사이징 설정
+                        let _ = window.set_resizable(resizable);
                         let _ = window.set_min_size(Some(tauri::Size::Logical(tauri::LogicalSize::new(new_w, min_h))));
                         let _ = window.set_max_size(Some(tauri::Size::Logical(tauri::LogicalSize::new(new_w, max_h))));
-                        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(new_w, new_h)));
+                        
+                        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(new_w, target_h)));
                     }
                 }
             });

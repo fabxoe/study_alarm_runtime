@@ -21,8 +21,8 @@ body {
   color: var(--text-main);
   min-height: 100vh;
   overflow: hidden;
-  user-select: none; /* 텍스트 선택 금지 */
-  -webkit-user-select: none; /* Safari 지원 */
+  user-select: none; 
+  -webkit-user-select: none; 
   -webkit-font-smoothing: antialiased;
 }
 
@@ -38,21 +38,44 @@ button {
 .app {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  padding: 8px 16px; /* 14px 20px -> 8px 16px로 축소 */
-  overflow: hidden; 
+  /* 컨텐츠 크기에 딱 맞춰지도록 수정 */
+  height: fit-content; 
+  padding: 8px 16px; 
 }
 
 .main-content {
-  flex: 1; /* 남는 공간 모두 차지 */
-  overflow-y: auto; /* 내용이 많으면 내부 스크롤 발생 */
-  margin-bottom: 4px; /* 10px -> 4px로 축소 */
-  /* 스크롤바 숨기기 (선택 사항) */
-  -ms-overflow-style: none;
-  scrollbar-width: none;
+  flex: 1;
+  overflow-y: auto;
+  margin-bottom: 4px; 
+  position: relative;
+  z-index: 1;
 }
+
+/* 내부 드롭다운이 열리면 해당 섹션을 최상단으로 올림 */
+.main-content:has(.custom-select.is-open) {
+  z-index: 100;
+}
+
+/* 슬림한 커스텀 스크롤바 설정 */
 .main-content::-webkit-scrollbar {
-  display: none;
+  width: 4px;
+}
+.main-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+.main-content::-webkit-scrollbar-thumb {
+  background: var(--border-focus);
+  border-radius: 10px;
+}
+.main-content::-webkit-scrollbar-thumb:hover {
+  background: var(--purple-main);
+}
+
+.main-content.flow {
+  overflow: visible !important;
+}
+.main-content.flow::-webkit-scrollbar {
+  display: none !important;
 }
 
 .header {
@@ -241,7 +264,7 @@ button {
 }
 
 .timer-card .time {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'gemeli mono 03 Bd', monospace;
   font-size: 52px;
   font-weight: 800;
   color: #F0F2FF;
@@ -298,9 +321,7 @@ button {
 }
 
 .list-container {
-  flex: 1;
-  overflow-y: auto;
-  margin-bottom: 4px; /* 12px에서 4px로 축소 */
+  margin-bottom: 4px; 
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -351,7 +372,7 @@ button {
   width: 65px; /* 축소 시에도 겹치지 않도록 너비 상향 */
   flex-shrink: 0; /* 영역 보존 */
   font-weight: 700;
-  font-family: 'JetBrains Mono', 'Menlo', monospace;
+  font-family: 'gemeli mono 03 Bd', 'Menlo', monospace;
   font-size: 13px;
 }
 .lecture .item-time { color: #8AABFF; }
@@ -403,6 +424,11 @@ button {
   position: relative;
   flex: 1;
   margin: 0 10px;
+  z-index: 1;
+}
+
+.custom-select.is-open {
+  z-index: 1000;
 }
 
 .select-trigger {
@@ -440,7 +466,7 @@ button {
   border: 1px solid var(--purple-main);
   border-radius: 8px;
   box-shadow: 0 4px 15px var(--purple-glow);
-  z-index: 100;
+  z-index: 1001;
   max-height: 200px;
   overflow-y: auto;
 }
@@ -494,11 +520,16 @@ button {
 .bottom-group {
   display: flex;
   flex-direction: column;
-  flex-shrink: 0; /* 절대 압축되지 않음 */
+  flex-shrink: 0;
   background-color: var(--bg);
-  z-index: 10;
-  padding: 4px 0 10px 0; /* 상단(10->4) 및 하단(20->10) 여백 대폭 축소 */
+  z-index: 2;
+  padding: 4px 0 10px 0;
   border-top: 1px solid rgba(255, 255, 255, 0.05);
+  position: relative;
+}
+
+.bottom-group:has(.custom-select.is-open) {
+  z-index: 100;
 }
 
 .settings-panel {
@@ -603,12 +634,13 @@ button {
   background: var(--bg-panel);
   border-radius: 12px;
   border: 1px solid var(--border);
-  padding: 14px 20px; /* 20px -> 14px로 축소 */
+  padding: 14px 20px;
   display: flex;
   flex-direction: column;
-  gap: 10px; /* 16px -> 10px로 축소 */
-  margin-bottom: 4px; 
+  gap: 0;
+  margin-bottom: 4px;
   animation: fadeSlideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  overflow: visible !important;
 }
 
 @keyframes fadeSlideUp {
@@ -626,13 +658,21 @@ button {
   color: var(--purple-main);
   font-size: 14px;
   font-weight: 700;
+  margin-bottom: 8px;
 }
 
 .flow-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  padding: 0;
+  margin: 0;
+  height: 38px;
+  position: relative;
 }
+.flow-row:nth-child(2) { z-index: 3; } /* 공부 시간 행 */
+.flow-row:nth-child(3) { z-index: 2; } /* 쉬는 시간 행 */
+.flow-row:nth-child(4) { z-index: 1; } /* 페이즈 표시 행 */
 
 .flow-label {
   font-size: 16px;

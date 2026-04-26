@@ -51,7 +51,7 @@ const CustomSelect = ({ value, options, onChange, disabled = false, dropUp = fal
   }, []);
 
   return (
-    <div className={`custom-select ${disabled ? 'disabled' : ''}`} ref={containerRef}>
+    <div className={`custom-select ${disabled ? 'disabled' : ''} ${isOpen ? 'is-open' : ''}`} ref={containerRef}>
       <div className="select-trigger" onClick={() => !disabled && setIsOpen(!isOpen)}>
         {value}
         <span className="arrow">{isOpen ? '▲' : '▼'}</span>
@@ -85,13 +85,13 @@ export default function App() {
   const [nextLabel, setNextLabel] = useState("시작 버튼을 눌러주세요");
   const [activeIdx, setActiveIdx] = useState(-1);
   const firedAlarms = useRef<Set<number>>(new Set());
+  const lastTickDay = useRef<number>(new Date().getDate());
 
   const [flowStudyMins, setFlowStudyMins] = useState(50);
   const [flowBreakMins, setFlowBreakMins] = useState(10);
   const [flowState, setFlowState] = useState<"study" | "break">("study");
   const [flowEndTime, setFlowEndTime] = useState<Date | null>(null);
 
-  // Settings
   const [alwaysOnTop, setAlwaysOnTop] = useState(false);
   const [playSound, setPlaySound] = useState(true);
   const [soundLoop, setSoundLoop] = useState(false);
@@ -100,78 +100,72 @@ export default function App() {
   const [statusMsg, setStatusMsg] = useState("⏸ 알람 비활성");
   const [zoomLevel, setZoomLevel] = useState(1.0);
   
-  // 수학적 일관성을 위한 기준 높이 정의 (줌 1.0일 때의 논리적 높이)
-  const MIN_BASE_HEIGHT = 550; // 하단 그룹 전체가 잘림 없이 완벽히 보존되는 최소 높이 (패딩 보정 반영)
   const BASE_HEIGHTS = {
-    flow: 620,      // 플로우 설정이 다 보이는 편안한 높이
-    schedule: 720   // 스케줄이 적당히 보이는 높이
+    flow: 620,
+    schedule: 720
   };
-
-
 
   const applyZoom = async (zoom: number) => {
     try {
-      // 1. DOM에 줌 적용
       (document.body.style as any).zoom = zoom.toString();
       
-      const { emit } = await import("@tauri-apps/api/event");
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      const win = getCurrentWindow();
-      const factor = await win.scaleFactor();
-      const size = await win.innerSize();
-      const logicalHeight = size.height / factor;
-      
-      const prevZoom = Number(document.body.style.zoom || 1);
-      const baseHBefore = isFlowMode ? BASE_HEIGHTS.flow : BASE_HEIGHTS.schedule;
-      const extraH = Math.max(0, (logicalHeight / prevZoom) - baseHBefore);
-
-      // 2. 동적 측정 (Dynamic Measurement)
-      // 상단 고정 영역들과 하단 그룹의 실제 높이를 측정하여 합산합니다.
+      // 2. 동적 높이 측정 (컨텐츠에 맞춰 윈도우 크기 결정)
+      const headerEl = document.querySelector('.header') as HTMLElement;
       const statusEl = document.querySelector('.status') as HTMLElement;
       const timerEl = document.querySelector('.timer-card') as HTMLElement;
-      const modeEl = document.querySelector('.mode-row') as HTMLElement;
-      const bottomEl = document.querySelector('.bottom-group') as HTMLElement;
-      const headerEl = document.querySelector('.header') as HTMLElement;
-      const flowWidgetEl = document.querySelector('.flow-widget') as HTMLElement; // 플로우 설정창 추가
+      const modeRowEl = document.querySelector('.mode-row') as HTMLElement;
+      const mainContentEl = document.querySelector('.main-content') as HTMLElement;
+      const bottomGroupEl = document.querySelector('.bottom-group') as HTMLElement;
 
-      let measuredMinH = 550; // 기본 안전값
-      let measuredMaxH = 2000; // 기본 안전값
+      if (!headerEl || !bottomGroupEl) return;
 
-      if (statusEl && timerEl && modeEl && bottomEl && headerEl) {
-        const topH = headerEl.offsetHeight + statusEl.offsetHeight + timerEl.offsetHeight + modeEl.offsetHeight;
-        const bottomH = bottomEl.offsetHeight;
-        
-        // 1. 최소 높이 계산 (플로우 모드 고려)
-        const flowH = flowWidgetEl ? flowWidgetEl.offsetHeight : 0;
-        measuredMinH = topH + flowH + bottomH + 20;
+      const appEl = document.querySelector('.app') as HTMLElement;
+      if (!appEl) return;
 
-        // 2. 최대 높이 계산 (메인 콘텐츠 고려)
-        const mainContentEl = document.querySelector('.main-content') as HTMLElement;
-        if (mainContentEl) {
-          const contentH = mainContentEl.scrollHeight;
-          measuredMaxH = topH + contentH + bottomH + 20;
-        }
-      }
+      // 2. 동적 높이 측정 (컨텐츠의 자연스러운 높이 측정)
+      // 측정 전 제약 조건을 일시적으로 풀어줍니다.
+      await emit("setzoom-event", { 
+        zoom, 
+        minHeight: 400 * zoom,
+        maxHeight: 2000 * zoom,
+        targetHeight: 0, // 0은 무시되도록 처리 필요하거나 현재 크기 유지
+        resizable: true
+      });
 
-      const currentBaseH = isFlowMode ? BASE_HEIGHTS.flow : BASE_HEIGHTS.schedule;
+      // 레이아웃 업데이트 대기 후 측정
+      const naturalH = appEl.offsetHeight;
+      
+      const targetHeight = isFlowMode ? (620 * zoom) : Math.min(950 * zoom, naturalH);
+      const minHeight = (isFlowMode ? 620 * zoom : 650 * zoom);
+      const maxHeight = isFlowMode ? minHeight : naturalH; 
 
       await emit("setzoom-event", { 
         zoom, 
-        extraHeight: extraH,
-        minHeight: measuredMinH,
-        maxHeight: measuredMaxH,
-        baseHeight: currentBaseH
+        minHeight,
+        maxHeight,
+        targetHeight: targetHeight,
+        resizable: !isFlowMode
       });
     } catch (e) {
       console.log("Zoom API failed", e);
     }
   };
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      applyZoom(zoomLevel);
+    }, 50); 
+    return () => clearTimeout(timer);
+  }, [zoomLevel, isFlowMode]); 
 
   useEffect(() => {
-    applyZoom(zoomLevel);
-  }, [zoomLevel, isFlowMode]); // 모드 전환 시에도 높이 제약 조건 즉시 갱신
+    const observer = new ResizeObserver(() => {
+      applyZoom(zoomLevel);
+    });
+    const appEl = document.querySelector('.app');
+    if (appEl) observer.observe(appEl);
+    return () => observer.disconnect();
+  }, [zoomLevel]); 
 
-  // 초기 렌더링 시에도 즉시 적용되도록 보장
   useEffect(() => {
     const timer = setTimeout(() => {
       applyZoom(zoomLevel);
@@ -208,7 +202,6 @@ export default function App() {
     return () => clearInterval(timer);
   }, [isRunning, isFlowMode, flowEndTime, flowState]);
 
-  // Handle Always on Top
   useEffect(() => {
     async function updateWindow() {
       try {
@@ -222,9 +215,20 @@ export default function App() {
   }, [alwaysOnTop]);
 
   const tickSchedule = (now: Date) => {
+    // 날짜가 바뀌면(자정) 알람 발송 기록 초기화
+    if (now.getDate() !== lastTickDay.current) {
+      firedAlarms.current.clear();
+      lastTickDay.current = now.getDate();
+    }
+
     let current = -1;
     for (let i = 0; i < SCHEDULE.length; i++) {
       if (parseTime(SCHEDULE[i].time) <= now) current = i;
+    }
+
+    // 자정 이후 첫 스케줄 전까지는 첫 번째 항목(10:00)을 가리키도록 설정
+    if (current === -1 && SCHEDULE.length > 0) {
+      current = 0;
     }
     setActiveIdx(current);
 
@@ -272,6 +276,7 @@ export default function App() {
     end.setMinutes(end.getMinutes() + mins);
     setFlowState(state);
     setFlowEndTime(end);
+    setCountdownStr(formatTimeDiff(mins * 60)); // 시작 즉시 시간 표시
     triggerAlarm(`${state === "study" ? "공부" : "휴식"} 시작`, `${mins}분간 ${state === "study" ? "집중" : "휴식"}하세요!`, state);
     
     const phaseTxt = `${state === "study" ? "📖 공부 중..." : "☕ 휴식 중..."} → ${mins}분 후 ${state === "study" ? "휴식" : "공부"}`;
@@ -303,40 +308,10 @@ export default function App() {
     if (isRunning) return;
     const nextMode = !isFlowMode;
     setIsFlowMode(nextMode);
-    animateWindowSize(nextMode);
-  };
-
-  const animateWindowSize = async (toFlowMode: boolean) => {
-    try {
-      const { getCurrentWindow, LogicalSize } = await import('@tauri-apps/api/window');
-      const win = getCurrentWindow();
-      const size = await win.innerSize();
-      const factor = await win.scaleFactor();
-      const logical = size.toLogical(factor);
-      
-      const currentHeight = logical.height;
-      const baseH = toFlowMode ? BASE_HEIGHTS.flow : BASE_HEIGHTS.schedule;
-      const targetHeight = baseH * zoomLevel;
-      const diff = targetHeight - currentHeight;
-      
-      const steps = 25;
-      let step = 0;
-      
-      const animate = async () => {
-        step++;
-        const t = step / steps;
-        const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-        const newHeight = currentHeight + diff * ease;
-        
-        await win.setSize(new LogicalSize(logical.width, newHeight));
-        
-        if (step < steps) {
-          requestAnimationFrame(animate);
-        }
-      };
-      requestAnimationFrame(animate);
-    } catch (e) {
-      console.log("Resize animation failed", e);
+    if (nextMode) {
+      setCountdownStr("--:--");
+    } else {
+      tickSchedule(new Date());
     }
   };
 
@@ -353,7 +328,7 @@ export default function App() {
         url: `popup.html?title=${encodeURIComponent(title)}&msg=${encodeURIComponent(msg)}&kind=${kind || (title === '테스트' ? 'test' : 'info')}`,
         title: "알람",
         width: 280,
-        height: 320, // 260에서 320으로 늘려 잘림 방지 및 예시 이미지 비율 구현
+        height: 320,
         alwaysOnTop: true,
         center: true,
         resizable: false,
@@ -373,7 +348,6 @@ export default function App() {
     }, 5000);
   };
 
-  // Get current session text
   let sessionText = "";
   if (!isFlowMode && activeIdx >= 0) {
     sessionText = `● 현재 세션: ${SCHEDULE[activeIdx].time} ${SCHEDULE[activeIdx].title}`;
@@ -386,28 +360,15 @@ export default function App() {
       <div className="header">
         <div className="header-left">
           <div className="zoom-controls">
-            <button 
-              className="zoom-btn" 
-              onClick={() => setZoomLevel(z => Math.max(z - 0.1, 0.5))}
-              title="축소 (Cmd -)"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.0" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 14h6v6M20 10h-6V4M14 20v-6h6M10 4v6H4" />
-              </svg>
+            <button className="zoom-btn" onClick={() => setZoomLevel(z => Math.max(z - 0.1, 0.5))}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.0" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14h6v6M20 10h-6V4M14 20v-6h6M10 4v6H4" /></svg>
             </button>
             <div className="zoom-divider"></div>
-            <button 
-              className="zoom-btn" 
-              onClick={() => setZoomLevel(z => Math.min(z + 0.1, 2.0))}
-              title="확대 (Cmd +)"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.0" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M15 3h6v6M9 21H3v-6M21 15v6h-6M3 9V3h6" />
-              </svg>
+            <button className="zoom-btn" onClick={() => setZoomLevel(z => Math.min(z + 0.1, 2.0))}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.0" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 15v6h-6M3 9V3h6" /></svg>
             </button>
           </div>
         </div>
-
         <div className="header-right">
           <div className="on-top-wrap">
             <span>항상 위</span>
@@ -416,29 +377,22 @@ export default function App() {
           <span className="clock-text">{currentTime || "00:00:00"}</span>
         </div>
       </div>
-
       <div className={`status ${isRunning ? 'active' : ''}`}>{statusMsg}</div>
-
       <div className="timer-card">
         <div className="label">다음 알람까지</div>
         <div className="time">{countdownStr}</div>
         <div className="next">{nextLabel}</div>
       </div>
-
       <div className="mode-row">
         <div>
           <div className="session-info">{sessionText}</div>
           {!isFlowMode && <div className="schedule-header">오늘 스케줄</div>}
         </div>
-        <button 
-          className="mode-btn" 
-          onClick={toggleMode}
-          style={{ opacity: isRunning ? 0.5 : 1, cursor: isRunning ? 'not-allowed' : 'pointer' }}
-        >
+        <button className="mode-btn" onClick={toggleMode} style={{ opacity: isRunning ? 0.5 : 1, cursor: isRunning ? 'not-allowed' : 'pointer' }}>
           {isFlowMode ? "스케줄 모드" : "플로우 모드"}
         </button>
       </div>
-      <div className="main-content">
+      <div className={`main-content ${isFlowMode ? 'flow' : ''}`}>
         {!isFlowMode ? (
           <div className="list-container">
             {SCHEDULE.map((item, idx) => (
