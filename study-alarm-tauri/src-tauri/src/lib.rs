@@ -9,6 +9,35 @@ fn show_window(window: tauri::Window) {
     window.show().unwrap();
 }
 
+#[tauri::command]
+async fn update_window_config(
+    window: tauri::Window,
+    zoom: f64,
+    min_h: f64,
+    max_h: f64,
+    target_h: f64,
+    resizable: bool,
+) {
+    let base_w = 460.0;
+    let new_w = base_w * zoom;
+    let size = tauri::Size::Logical(tauri::LogicalSize::new(new_w, target_h));
+
+    if !resizable {
+        // 플로우 모드: macOS 리사이징 커서 완벽 봉쇄를 위한 강력한 고정
+        let _ = window.set_resizable(false);
+        let _ = window.set_min_size(Some(size));
+        let _ = window.set_max_size(Some(size));
+        let _ = window.set_size(size);
+        let _ = window.set_resizable(false); // 재확인
+    } else {
+        // 스케줄 모드: 리사이징 커서 허용 및 범위 설정
+        let _ = window.set_resizable(true);
+        let _ = window.set_min_size(Some(tauri::Size::Logical(tauri::LogicalSize::new(new_w, min_h))));
+        let _ = window.set_max_size(Some(tauri::Size::Logical(tauri::LogicalSize::new(new_w, max_h))));
+        let _ = window.set_size(size);
+    }
+}
+
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -27,39 +56,6 @@ pub fn run() {
                 let _ = window.set_max_size(Some(tauri::Size::Logical(tauri::LogicalSize::new(460.0, 2000.0))));
             }
             
-            // 줌 조절 이벤트 리스너
-            app.listen_any("setzoom-event", move |event| {
-                #[derive(serde::Deserialize)]
-                #[serde(rename_all = "camelCase")]
-                struct ZoomPayload { 
-                    zoom: f64, 
-                    min_height: f64, 
-                    max_height: f64,
-                    target_height: f64,
-                    resizable: bool
-                }
-                
-                if let Ok(payload) = serde_json::from_str::<ZoomPayload>(event.payload()) {
-                    if let Some(window) = app_handle.get_webview_window("main") {
-                        let zoom = payload.zoom;
-                        let min_h = payload.min_height;
-                        let max_h = payload.max_height;
-                        let target_h = payload.target_height;
-                        let resizable = payload.resizable;
-
-                        let base_w = 460.0;
-                        let new_w = base_w * zoom;
-
-                        // 제약 조건 및 리사이징 설정
-                        let _ = window.set_resizable(resizable);
-                        let _ = window.set_min_size(Some(tauri::Size::Logical(tauri::LogicalSize::new(new_w, min_h))));
-                        let _ = window.set_max_size(Some(tauri::Size::Logical(tauri::LogicalSize::new(new_w, max_h))));
-                        
-                        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(new_w, target_h)));
-                    }
-                }
-            });
-
             // 소리 재생 이벤트 리스너
             let state_clone = audio_state_for_event.clone();
             app.listen_any("playsound", move |event| {
@@ -88,7 +84,7 @@ pub fn run() {
             Ok(())
         })
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![show_window])
+        .invoke_handler(tauri::generate_handler![show_window, update_window_config])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

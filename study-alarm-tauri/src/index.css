@@ -14,12 +14,17 @@
   --border-focus: #433D60;
 }
 
-body {
+html, body, #root {
+  height: auto !important;
+  min-height: 0 !important;
   margin: 0;
+  padding: 0;
+}
+
+body {
   font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   background-color: var(--bg);
   color: var(--text-main);
-  height: 100vh;
   overflow: hidden;
   user-select: none;
   -webkit-font-smoothing: antialiased;

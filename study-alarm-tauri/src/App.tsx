@@ -122,29 +122,25 @@ export default function App() {
       const appEl = document.querySelector('.app') as HTMLElement;
       if (!appEl) return;
 
-      // 2. 동적 높이 측정 (컨텐츠의 자연스러운 높이 측정)
-      // 측정 전 제약 조건을 일시적으로 풀어줍니다.
-      await emit("setzoom-event", { 
-        zoom, 
-        minHeight: 400 * zoom,
-        maxHeight: 2000 * zoom,
-        targetHeight: 0, // 0은 무시되도록 처리 필요하거나 현재 크기 유지
-        resizable: true
-      });
-
-      // 레이아웃 업데이트 대기 후 측정
-      const naturalH = appEl.offsetHeight;
+      // 레이아웃 업데이트 대기 후 실제 컨텐츠 높이 측정
+      const naturalH = appEl.scrollHeight;
       
-      const targetHeight = isFlowMode ? (620 * zoom) : Math.min(950 * zoom, naturalH);
-      const minHeight = (isFlowMode ? 620 * zoom : 650 * zoom);
-      const maxHeight = isFlowMode ? minHeight : naturalH; 
+      // 플로우 모드 고정 높이 560px (좀 더 타이트하게)
+      const flowHeight = Math.ceil(560 * zoom);
+      const targetHeight = isFlowMode ? flowHeight : Math.ceil(Math.min(950 * zoom, naturalH));
+      const minHeight = isFlowMode ? flowHeight : Math.ceil(650 * zoom);
+      const maxHeight = isFlowMode ? flowHeight : Math.ceil(2000 * zoom); 
 
-      await emit("setzoom-event", { 
+      const resizableFlag = !isFlowMode;
+      console.log(`[Resize] Mode: ${isFlowMode ? 'Flow' : 'Schedule'}, Target: ${targetHeight}, Resizable: ${resizableFlag}`);
+
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("update_window_config", { 
         zoom, 
-        minHeight,
-        maxHeight,
-        targetHeight: targetHeight,
-        resizable: !isFlowMode
+        minH: minHeight,
+        maxH: maxHeight,
+        targetH: targetHeight,
+        resizable: resizableFlag
       });
     } catch (e) {
       console.log("Zoom API failed", e);
@@ -429,9 +425,7 @@ export default function App() {
               />
               <span>분</span>
             </div>
-            <div className="flow-phase">
-              {isRunning && (flowState === 'study' ? '📖 공부 중... → 휴식' : '☕ 휴식 중... → 공부')}
-            </div>
+
           </div>
         )}
       </div> {/* main-content 끝 */}
