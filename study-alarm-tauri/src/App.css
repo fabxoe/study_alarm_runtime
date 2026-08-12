@@ -38,14 +38,17 @@ button {
 .app {
   display: flex;
   flex-direction: column;
-  height: auto !important; 
+  height: 100vh !important;
+  box-sizing: border-box;
   min-height: 0 !important;
   max-height: none !important;
-  padding: 8px 16px 15px 16px; 
+  padding: 8px 16px 12px 16px; /* 하단 패딩 추가 */
 }
 
 .main-content {
-  flex: 1;
+  /* 콘텐츠만큼 차지하고, 창이 작을 때만 줄어들어 스크롤됩니다. */
+  flex: 0 1 auto;
+  min-height: 0;
   overflow-y: auto;
   margin-bottom: 4px; 
   position: relative;
@@ -53,7 +56,7 @@ button {
 }
 
 .main-content.flow {
-  flex: none; /* 플로우 모드에서는 컨텐츠 크기에 맞춰 축소 */
+  /* flex: 1을 유지하여 창 크기에 따라 조절되도록 함 */
 }
 
 /* 내부 드롭다운이 열리면 해당 섹션을 최상단으로 올림 */
@@ -77,7 +80,7 @@ button {
 }
 
 .main-content.flow {
-  overflow: visible !important;
+  overflow-y: auto !important;
 }
 .main-content.flow::-webkit-scrollbar {
   display: none !important;
@@ -91,7 +94,6 @@ button {
   position: relative;
   height: 40px;
   flex-shrink: 0; /* 압축 방지 */
-}
 }
 
 .runtime-logo {
@@ -109,29 +111,43 @@ button {
 .zoom-controls {
   display: flex;
   align-items: center;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
   padding: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .zoom-btn {
   background: transparent;
   border: none;
-  color: var(--text-muted);
-  width: 28px;
-  height: 28px;
+  color: #94a3b8;
+  padding: 4px;
+  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 6px;
+  transition: all 0.2s ease;
 }
 
 .zoom-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.1);
   color: #fff;
-  transform: scale(1.1);
+}
+
+.zoom-value {
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+  padding: 0 8px;
+  cursor: pointer;
+  min-width: 40px;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.zoom-value:hover {
+  color: #fff;
 }
 
 .zoom-btn:active {
@@ -324,6 +340,8 @@ button {
   background: var(--purple-light);
   box-shadow: 0 0 10px var(--purple-glow);
 }
+
+
 
 .list-container {
   margin-bottom: 4px; 
@@ -587,14 +605,16 @@ button {
 }
 
 .bottom-group {
+  /* 타임라인 아래에 바로 이어지도록 남는 공간으로 밀어내지 않습니다. */
+  margin-top: 0;
   display: flex;
   flex-direction: column;
+  gap: 12px;
   flex-shrink: 0;
   background-color: var(--bg);
   z-index: 2;
   padding: 4px 0 6px 0;
   border-top: 1px solid rgba(255, 255, 255, 0.05);
-  position: relative;
 }
 
 .bottom-group:has(.custom-select.is-open) {
@@ -684,6 +704,11 @@ button {
 }
 
 .test-link {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
   text-align: center;
   font-size: 12px;
   color: var(--text-muted);
