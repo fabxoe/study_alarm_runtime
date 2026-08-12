@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import "./App.css";
 
 const SCHEDULE = [
@@ -19,6 +19,30 @@ const SCHEDULE = [
   { time: "18:00", title: "공부 시작 (40분간)", type: "study", label: "공부" },
   { time: "18:40", title: "완료", type: "done", label: "완료" },
 ];
+
+type AlarmAudioSettings = {
+  playSound: boolean;
+  soundFile: string;
+  soundLoop: boolean;
+  volume: number;
+};
+
+const MAC_SOUND_OPTIONS = [
+  "Bottle", "Glass", "Ping", "Funk", "Tink", "Hero", "Basso",
+  "Blow", "Frog", "Morse", "Pop", "Purr", "Sosumi", "Submarine",
+];
+
+const WINDOWS_SOUND_OPTIONS = [
+  "Alarm01",
+  "Windows Notify Calendar",
+  "Alarm08",
+  "Windows Ding",
+];
+
+const IS_WINDOWS = typeof navigator !== "undefined"
+  && navigator.userAgent.toLowerCase().includes("windows");
+const SOUND_OPTIONS = IS_WINDOWS ? WINDOWS_SOUND_OPTIONS : MAC_SOUND_OPTIONS;
+const DEFAULT_SOUND_FILE = SOUND_OPTIONS[0];
 
 function parseTime(hhmm: string) {
   const [h, m] = hhmm.split(':').map(Number);
@@ -80,7 +104,7 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState("");
   const [isFlowMode, setIsFlowMode] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
-  
+
   const [countdownStr, setCountdownStr] = useState("--:--");
   const [nextLabel, setNextLabel] = useState("시작 버튼을 눌러주세요");
   const [activeIdx, setActiveIdx] = useState(-1);
@@ -95,76 +119,139 @@ export default function App() {
   const [alwaysOnTop, setAlwaysOnTop] = useState(false);
   const [playSound, setPlaySound] = useState(true);
   const [soundLoop, setSoundLoop] = useState(false);
-  const [soundFile, setSoundFile] = useState("Bottle");
+  const [soundFile, setSoundFile] = useState(DEFAULT_SOUND_FILE);
   const [volume, setVolume] = useState(80);
   const [statusMsg, setStatusMsg] = useState("⏸ 알람 비활성");
   const [zoomLevel, setZoomLevel] = useState(1.0);
-  
-  const BASE_HEIGHTS = {
-    flow: 620,
-    schedule: 720
+
+  // 타이머 콜백에서도 가장 최근 설정을 읽도록 별도 ref에 동기화합니다.
+  // 각 입력 핸들러에서도 즉시 갱신하므로 상태 렌더 전에 알람이 발생해도
+  // 플랫폼별 초기 기본값이 잘못 재생되지 않습니다.
+  const alarmAudioSettingsRef = useRef<AlarmAudioSettings>({
+    playSound,
+    soundFile,
+    soundLoop,
+    volume,
+  });
+
+  const updateAlarmAudioSettings = (next: Partial<AlarmAudioSettings>) => {
+    alarmAudioSettingsRef.current = {
+      ...alarmAudioSettingsRef.current,
+      ...next,
+    };
   };
+
+  useEffect(() => {
+    alarmAudioSettingsRef.current = { playSound, soundFile, soundLoop, volume };
+  }, [playSound, soundFile, soundLoop, volume]);
+
+  const isFlowModeRef = useRef(isFlowMode);
+  useEffect(() => { isFlowModeRef.current = isFlowMode; }, [isFlowMode]);
+
+  const handleZoomIn = useCallback(() => setZoomLevel(z => Math.min(Math.round((z + 0.1) * 10) / 10, 1.5)), []);
+  const handleZoomOut = useCallback(() => setZoomLevel(z => Math.max(Math.round((z - 0.1) * 10) / 10, 0.5)), []);
+  const handleZoomReset = useCallback(() => setZoomLevel(1.0), []);
+
+  // macOS 네이티브 메뉴가 Command 단축키를 먼저 처리하는 경우의 줌 이벤트입니다.
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    import('@tauri-apps/api/event').then(({ listen }) =>
+      listen<string>('zoom-action', ({ payload }) => {
+        if (payload === 'in') handleZoomIn();
+        else if (payload === 'out') handleZoomOut();
+        else if (payload === 'reset') handleZoomReset();
+      })
+    ).then((stopListening) => {
+      if (disposed) stopListening();
+      else unlisten = stopListening;
+    }).catch((error) => {
+      console.log('Zoom shortcut listener failed', error);
+    });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [handleZoomIn, handleZoomOut, handleZoomReset]);
 
   const applyZoom = async (zoom: number) => {
     try {
-      (document.body.style as any).zoom = zoom.toString();
-      
-      // 2. 동적 높이 측정 (컨텐츠에 맞춰 윈도우 크기 결정)
-      const headerEl = document.querySelector('.header') as HTMLElement;
-      const statusEl = document.querySelector('.status') as HTMLElement;
-      const timerEl = document.querySelector('.timer-card') as HTMLElement;
-      const modeRowEl = document.querySelector('.mode-row') as HTMLElement;
-      const mainContentEl = document.querySelector('.main-content') as HTMLElement;
-      const bottomGroupEl = document.querySelector('.bottom-group') as HTMLElement;
-
-      if (!headerEl || !bottomGroupEl) return;
-
+      const isFlow = isFlowModeRef.current;
       const appEl = document.querySelector('.app') as HTMLElement;
       if (!appEl) return;
 
-      // 레이아웃 업데이트 대기 후 실제 컨텐츠 높이 측정
-      // 모든 모드에서 가려짐 방지를 위해 버퍼를 25px로 넉넉히 잡습니다.
-      const naturalH = Math.ceil(appEl.scrollHeight + 25);
-      
-      const targetHeight = isFlowMode 
-        ? Math.max(Math.ceil(600 * zoom), naturalH) 
-        : Math.min(Math.ceil(950 * zoom), Math.max(Math.ceil(750 * zoom), naturalH));
+      (document.body.style as any).zoom = zoom.toString();
+      const mainContentEl = document.querySelector('.main-content') as HTMLElement;
 
-      // 플로우 모드는 높이 고정(min==max), 스케줄 모드는 최소 650px까지 리사이징 허용
-      // 스케줄 모드의 최대 높이를 실제 컨텐츠 높이(naturalH)로 제한하여 하단 빈 여백 생성을 차단합니다.
-      const minHeight = isFlowMode ? targetHeight : Math.ceil(650 * zoom);
-      const maxHeight = isFlowMode ? targetHeight : naturalH; 
+      // 100vh/flex 제약을 잠시 풀고 스크롤 없이 펼쳐진 실제 컨텐츠 높이를 측정합니다.
+      // CSS의 height: 100vh !important를 덮어쓰기 위해 인라인 !important가 필요합니다.
+      appEl.style.setProperty('height', 'auto', 'important');
+      if (mainContentEl) {
+        mainContentEl.style.setProperty('height', 'auto');
+        mainContentEl.style.setProperty('flex', 'none');
+        mainContentEl.style.setProperty('overflow-y', 'visible');
+      }
 
-      const resizableFlag = !isFlowMode;
-      console.log(`[Resize] Mode: ${isFlowMode ? 'Flow' : 'Schedule'}, Target: ${targetHeight}, Resizable: ${resizableFlag}`);
+      // 스타일 변경을 레이아웃에 반영한 후 실제로 화면에 그려지는 높이를 측정합니다.
+      // WebView2의 getBoundingClientRect()에는 CSS zoom이 이미 반영되므로 다시 zoom을
+      // 곱하면 Windows에서 창이 과도하게 커지고 하단에 빈 공간이 생깁니다.
+      void appEl.offsetHeight;
+      const naturalRenderedHeight = Math.ceil(appEl.getBoundingClientRect().height);
+
+      // body의 CSS zoom은 100vh 자체도 함께 확대/축소합니다. 앱 높이에 역배율을
+      // 적용해야 확대율과 관계없이 렌더링된 앱이 실제 웹뷰 높이를 정확히 채웁니다.
+      appEl.style.setProperty('height', `${100 / zoom}vh`, 'important');
+      if (mainContentEl) {
+        mainContentEl.style.removeProperty('height');
+        mainContentEl.style.removeProperty('flex');
+        mainContentEl.style.removeProperty('overflow-y');
+      }
+
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      const win = getCurrentWindow();
+
+      // outer/inner 차이로 macOS 타이틀 바 높이를 정확히 포함합니다.
+      const [outerSize, innerSize, scaleFactor] = await Promise.all([
+        win.outerSize(),
+        win.innerSize(),
+        win.scaleFactor(),
+      ]);
+      const titleBarHeight = Math.max(0, (outerSize.height - innerSize.height) / scaleFactor);
+      const naturalOuterHeight = Math.ceil(naturalRenderedHeight + titleBarHeight);
+
+      // 현재 모니터의 메뉴 바/Dock을 제외한 영역을 최대 높이로 사용합니다.
+      const availableHeight = Math.max(480, Math.floor(window.screen.availHeight - 12));
+      const targetHeight = Math.min(naturalOuterHeight, availableHeight);
+      const minHeight = isFlow
+        ? targetHeight
+        : Math.min(targetHeight, Math.max(480, Math.ceil(520 * zoom)));
+      const maxHeight = isFlow ? targetHeight : availableHeight;
 
       const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("update_window_config", { 
-        zoom, 
+      await invoke("update_window_config", {
+        zoom,
         minH: minHeight,
         maxH: maxHeight,
         targetH: targetHeight,
-        resizable: resizableFlag
+        resizable: !isFlow,
       });
     } catch (e) {
       console.log("Zoom API failed", e);
     }
   };
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      applyZoom(zoomLevel);
-    }, 50); 
-    return () => clearTimeout(timer);
-  }, [zoomLevel, isFlowMode]); 
 
+  // 줌 또는 모드 변경 시 다단계로 크기 조정 (렌더링 시점 이슈 방지)
   useEffect(() => {
-    const observer = new ResizeObserver(() => {
-      applyZoom(zoomLevel);
-    });
-    const appEl = document.querySelector('.app');
-    if (appEl) observer.observe(appEl);
-    return () => observer.disconnect();
-  }, [zoomLevel]); 
+    applyZoom(zoomLevel);
+    const t1 = setTimeout(() => applyZoom(zoomLevel), 100);
+    const t2 = setTimeout(() => applyZoom(zoomLevel), 400);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [zoomLevel, isFlowMode]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -176,21 +263,40 @@ export default function App() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey) {
-        if (e.key === '=' || e.key === '+') {
+        let handled = false;
+        if (e.key === '=' || e.key === '+' || e.code === 'Equal' || e.key === 'ArrowUp') {
+          handleZoomIn();
+          handled = true;
+        }
+        else if (e.key === '-' || e.code === 'Minus' || e.key === 'ArrowDown') {
+          handleZoomOut();
+          handled = true;
+        }
+        else if (e.key === '0' || e.code === 'Digit0') {
+          handleZoomReset();
+          handled = true;
+        }
+
+        if (handled) {
           e.preventDefault();
-          setZoomLevel(z => Math.min(z + 0.1, 2.0));
-        } else if (e.key === '-') {
-          e.preventDefault();
-          setZoomLevel(z => Math.max(z - 0.1, 0.5));
-        } else if (e.key === '0') {
-          e.preventDefault();
-          setZoomLevel(1.0);
+          e.stopPropagation();
+          e.stopImmediatePropagation();
         }
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown, true);
+    window.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, true);
+      window.removeEventListener('wheel', handleWheel);
+    };
+  }, [zoomLevel, handleZoomIn, handleZoomOut, handleZoomReset]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -200,7 +306,7 @@ export default function App() {
       else tickFlow(now);
     }, 1000);
     return () => clearInterval(timer);
-  }, [isRunning, isFlowMode, flowEndTime, flowState]);
+  }, [isRunning, isFlowMode, flowEndTime, flowState, playSound, soundFile, soundLoop, volume]);
 
   useEffect(() => {
     async function updateWindow() {
@@ -301,6 +407,8 @@ export default function App() {
       setCountdownStr("--:--");
       setNextLabel("시작 버튼을 눌러주세요");
       setStatusMsg("⏸ 알람 비활성");
+      // 소리 중지 추가
+      import("@tauri-apps/api/event").then(m => m.emit("stopsound"));
     }
   };
 
@@ -308,6 +416,7 @@ export default function App() {
     if (isRunning) return;
     const nextMode = !isFlowMode;
     setIsFlowMode(nextMode);
+    isFlowModeRef.current = nextMode; // 즉시 반영하여 리사이즈 리스너 등이 오판하지 않게 함
     if (nextMode) {
       setCountdownStr("--:--");
     } else {
@@ -315,17 +424,44 @@ export default function App() {
     }
   };
 
+  const previewSound = async () => {
+    try {
+      const audioSettings = alarmAudioSettingsRef.current;
+      if (audioSettings.playSound) {
+        const { emit } = await import("@tauri-apps/api/event");
+        await emit("playsound", {
+          name: audioSettings.soundFile,
+          looping: false,
+          volume: audioSettings.volume / 100,
+        });
+      }
+    } catch (e) {
+      console.log("Preview sound failed", e);
+    }
+  };
+
   const triggerAlarm = async (title: string, msg: string, kind?: string) => {
     try {
-      if (playSound) {
-        const { emit } = await import("@tauri-apps/api/event");
-        await emit("playsound", soundFile);
-      }
-      
+      // 팝업이 준비되는 동안 설정이 바뀌더라도 알람이 발생한 시점의 설정을 사용합니다.
+      const audioSettings = { ...alarmAudioSettingsRef.current };
       const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
+      const { emit, once } = await import("@tauri-apps/api/event");
       const label = `popup_${Date.now()}`;
-      new WebviewWindow(label, {
-        url: `popup.html?title=${encodeURIComponent(title)}&msg=${encodeURIComponent(msg)}&kind=${kind || (title === '테스트' ? 'test' : 'info')}`,
+      const readyEvent = `popup-ready-${label}`;
+
+      // 팝업 HTML이 실제 창을 표시하고 두 프레임을 그린 뒤 보내는 이벤트입니다.
+      // 이 이벤트 이후에만 소리를 시작하므로 소리가 팝업보다 먼저 재생되지 않습니다.
+      const stopWaitingForReady = await once(readyEvent, () => {
+        if (!audioSettings.playSound) return;
+        void emit("playsound", {
+          name: audioSettings.soundFile,
+          looping: audioSettings.soundLoop,
+          volume: audioSettings.volume / 100,
+        });
+      });
+
+      const popup = new WebviewWindow(label, {
+        url: `popup.html?title=${encodeURIComponent(title)}&msg=${encodeURIComponent(msg)}&kind=${kind || (title === '테스트' ? 'test' : 'info')}&readyEvent=${encodeURIComponent(readyEvent)}`,
         title: "알람",
         width: 280,
         height: 320,
@@ -337,6 +473,11 @@ export default function App() {
         visible: false, // 처음에는 숨김
         shadow: true,
         backgroundColor: '#1A1926',
+      });
+
+      void popup.once('tauri://error', (event) => {
+        stopWaitingForReady();
+        console.log('Alarm popup creation failed', event.payload);
       });
     } catch (e) {
       console.log("Alarm trigger failed", e);
@@ -363,11 +504,13 @@ export default function App() {
       <div className="header">
         <div className="header-left">
           <div className="zoom-controls">
-            <button className="zoom-btn" onClick={() => setZoomLevel(z => Math.max(z - 0.1, 0.5))}>
+            <button className="zoom-btn" onClick={handleZoomOut} title="축소 (Cmd -)">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.0" strokeLinecap="round" strokeLinejoin="round"><path d="M4 14h6v6M20 10h-6V4M14 20v-6h6M10 4v6H4" /></svg>
             </button>
-            <div className="zoom-divider"></div>
-            <button className="zoom-btn" onClick={() => setZoomLevel(z => Math.min(z + 0.1, 2.0))}>
+            <div className="zoom-value" onClick={handleZoomReset} title="초기화 (Cmd 0)">
+              {Math.round(zoomLevel * 100)}%
+            </div>
+            <button className="zoom-btn" onClick={handleZoomIn} title="확대 (Cmd +)">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.0" strokeLinecap="round" strokeLinejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 15v6h-6M3 9V3h6" /></svg>
             </button>
           </div>
@@ -440,23 +583,39 @@ export default function App() {
             <span>알람 소리</span>
             <CustomSelect 
               value={soundFile} 
-              options={["Bottle","Glass","Ping","Funk","Tink","Hero","Basso","Blow","Frog","Morse","Pop","Purr","Sosumi","Submarine"]} 
-              onChange={(val) => setSoundFile(String(val))} 
+              options={SOUND_OPTIONS}
+              onChange={(val) => {
+                const nextSoundFile = String(val);
+                updateAlarmAudioSettings({ soundFile: nextSoundFile });
+                setSoundFile(nextSoundFile);
+              }}
               dropUp={true} 
             />
-            <button className="test-btn" onClick={() => triggerAlarm("미리듣기", "소리 테스트 중입니다")}>미리듣기</button>
+            <button className="test-btn" onClick={previewSound}>미리듣기</button>
           </div>
           <div className="settings-row">
             <div className="vol-group">
               <span>볼륨</span>
-              <input type="range" className="slider" min="0" max="100" value={volume} onChange={e => setVolume(Number(e.target.value))} />
+              <input type="range" className="slider" min="0" max="100" value={volume} onChange={e => {
+                const nextVolume = Number(e.target.value);
+                updateAlarmAudioSettings({ volume: nextVolume });
+                setVolume(nextVolume);
+              }} />
             </div>
             <div className="toggle-group">
               <span className="vol-text">{volume}%</span>
               <span className="setting-label">소리 켬</span>
-              <input type="checkbox" className="toggle" checked={playSound} onChange={e => setPlaySound(e.target.checked)} />
+              <input type="checkbox" className="toggle" checked={playSound} onChange={e => {
+                const nextPlaySound = e.target.checked;
+                updateAlarmAudioSettings({ playSound: nextPlaySound });
+                setPlaySound(nextPlaySound);
+              }} />
               <span className="setting-label">소리 루프</span>
-              <input type="checkbox" className="toggle" checked={soundLoop} onChange={e => setSoundLoop(e.target.checked)} disabled={!playSound} />
+              <input type="checkbox" className="toggle" checked={soundLoop} onChange={e => {
+                const nextSoundLoop = e.target.checked;
+                updateAlarmAudioSettings({ soundLoop: nextSoundLoop });
+                setSoundLoop(nextSoundLoop);
+              }} disabled={!playSound} />
             </div>
           </div>
         </div>
@@ -465,9 +624,9 @@ export default function App() {
           {isRunning ? "알람 중지" : "알람 시작"}
         </button>
 
-        <div className="test-link" onClick={testDelayAlarm}>
+        <button type="button" className="test-link" onClick={testDelayAlarm}>
           5초 뒤 팝업/소리 테스트
-        </div>
+        </button>
       </div>
     </div>
   );
