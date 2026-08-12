@@ -133,6 +133,7 @@
     const title = params.get('title') || '알람';
     const msg = params.get('msg') || '시간이 되었습니다.';
     const kind = params.get('kind') || 'info';
+    const readyEvent = params.get('readyEvent');
 
     document.getElementById('title').innerText = title;
     document.getElementById('message').innerText = msg;
@@ -195,17 +196,26 @@
 
 
 
-    // 화면이 완전히 준비되면 윈도우 표시 (100ms 지연으로 흰색 깜빡임 완전 차단)
-    setTimeout(() => {
+    // DOM을 준비한 뒤 창을 먼저 표시하고, 실제 렌더링 프레임이 지난 후 메인 창에
+    // 준비 완료를 알립니다. 메인 창은 이 이벤트를 받은 뒤에만 소리를 재생합니다.
+    setTimeout(async () => {
       try {
         const tauri = window.__TAURI__;
         if (tauri && tauri.core && tauri.core.invoke) {
-          tauri.core.invoke("show_window");
+          await tauri.core.invoke("show_window");
+        }
+
+        await new Promise(resolve => {
+          requestAnimationFrame(() => requestAnimationFrame(resolve));
+        });
+
+        if (readyEvent && tauri && tauri.event && tauri.event.emit) {
+          await tauri.event.emit(readyEvent);
         }
       } catch (err) {
         console.error("Window show failed:", err);
       }
-    }, 100);
+    }, 50);
   </script>
 </body>
 </html>
