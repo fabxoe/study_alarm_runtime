@@ -80,7 +80,12 @@ button {
 }
 
 .main-content.flow {
-  overflow-y: auto !important;
+  overflow: hidden !important;
+}
+
+/* 플로우 모드는 창 높이가 고정이라 스크롤이 필요 없으므로, 드롭다운이 열리면 잘리지 않고 위에 표시 */
+.main-content.flow:has(.custom-select.is-open) {
+  overflow: visible !important;
 }
 .main-content.flow::-webkit-scrollbar {
   display: none !important;

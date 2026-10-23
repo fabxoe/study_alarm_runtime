@@ -198,11 +198,25 @@ export default function App() {
       // WebView2의 getBoundingClientRect()에는 CSS zoom이 이미 반영되므로 다시 zoom을
       // 곱하면 Windows에서 창이 과도하게 커지고 하단에 빈 공간이 생깁니다.
       void appEl.offsetHeight;
-      const naturalRenderedHeight = Math.ceil(appEl.getBoundingClientRect().height);
+      // 플랫폼에 따라 getBoundingClientRect()가 zoom을 반영하는지 다르므로(WebView2는 반영,
+      // macOS WKWebView는 미반영) 기준 요소로 실제 반영 비율을 측정해 보정합니다.
+      const probe = document.createElement('div');
+      probe.style.cssText = 'position:absolute;visibility:hidden;width:1px;height:100px;';
+      document.body.appendChild(probe);
+      const rectScale = probe.getBoundingClientRect().height / 100;
+      probe.remove();
+      // 100vh가 화면에 실제로 그려지는 높이도 플랫폼마다 달라서(zoom이 vh에 곱해지는지 여부) 같은 방식으로 측정합니다.
+      const vhProbe = document.createElement('div');
+      vhProbe.style.cssText = 'position:absolute;visibility:hidden;width:1px;height:100vh;';
+      document.body.appendChild(vhProbe);
+      const renderedPer100vh = vhProbe.getBoundingClientRect().height * (zoom / rectScale);
+      vhProbe.remove();
+      const vhScale = renderedPer100vh / window.innerHeight;
+      const naturalRenderedHeight = Math.ceil(appEl.getBoundingClientRect().height * (zoom / rectScale));
 
       // body의 CSS zoom은 100vh 자체도 함께 확대/축소합니다. 앱 높이에 역배율을
       // 적용해야 확대율과 관계없이 렌더링된 앱이 실제 웹뷰 높이를 정확히 채웁니다.
-      appEl.style.setProperty('height', `${100 / zoom}vh`, 'important');
+      appEl.style.setProperty('height', `${100 / vhScale}vh`, 'important');
       if (mainContentEl) {
         mainContentEl.style.removeProperty('height');
         mainContentEl.style.removeProperty('flex');
@@ -227,7 +241,8 @@ export default function App() {
       const minHeight = isFlow
         ? targetHeight
         : Math.min(targetHeight, Math.max(480, Math.ceil(520 * zoom)));
-      const maxHeight = isFlow ? targetHeight : availableHeight;
+      // 콘텐츠 높이(모니터 높이로 제한)를 최대값으로 두어 스크롤이 필요 없는 길이 이상으로 늘어나지 않게 합니다.
+      const maxHeight = targetHeight;
 
       const { invoke } = await import("@tauri-apps/api/core");
       await invoke("update_window_config", {
@@ -237,6 +252,22 @@ export default function App() {
         targetH: targetHeight,
         resizable: !isFlow,
       });
+
+      // macOS에서 outerSize와 innerSize가 같게 보고되어 타이틀 바 높이가 0으로 계산되면
+      // 웹뷰가 그만큼 짧아져 콘텐츠가 잘립니다. 실제 웹뷰 높이로 부족분을 보정합니다.
+      if (targetHeight === naturalOuterHeight) {
+        await new Promise(resolve => setTimeout(resolve, 60));
+        const shortfall = Math.ceil(naturalRenderedHeight - window.innerHeight);
+        if (shortfall > 0 && shortfall <= 80) {
+          await invoke("update_window_config", {
+            zoom,
+            minH: minHeight + shortfall,
+            maxH: maxHeight + shortfall,
+            targetH: targetHeight + shortfall,
+            resizable: !isFlow,
+          });
+        }
+      }
     } catch (e) {
       console.log("Zoom API failed", e);
     }
