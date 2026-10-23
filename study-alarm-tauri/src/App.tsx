@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import "./App.css";
+import FocusOverlay from "./FocusOverlay";
 
 const SCHEDULE = [
   { time: "10:00", title: "공부 시작", type: "lecture", label: "강의" },
@@ -19,6 +20,10 @@ const SCHEDULE = [
   { time: "18:00", title: "공부 시작 (40분간)", type: "study", label: "공부" },
   { time: "18:40", title: "완료", type: "done", label: "완료" },
 ];
+
+const FOCUS_TOTAL_SEC = 15 * 60;
+// 집중 위젯 창의 한 변(논리 px)
+const FOCUS_WIDGET_SIZE = 280;
 
 type AlarmAudioSettings = {
   playSound: boolean;
@@ -123,6 +128,8 @@ export default function App() {
   const [volume, setVolume] = useState(80);
   const [statusMsg, setStatusMsg] = useState("⏸ 알람 비활성");
   const [zoomLevel, setZoomLevel] = useState(1.0);
+  const [focusActive, setFocusActive] = useState(false);
+  const [focusRemaining, setFocusRemaining] = useState(FOCUS_TOTAL_SEC);
 
   // 타이머 콜백에서도 가장 최근 설정을 읽도록 별도 ref에 동기화합니다.
   // 각 입력 핸들러에서도 즉시 갱신하므로 상태 렌더 전에 알람이 발생해도
@@ -274,7 +281,10 @@ export default function App() {
   };
 
   // 줌 또는 모드 변경 시 다단계로 크기 조정 (렌더링 시점 이슈 방지)
+  // 집중 위젯 중에는 정사각형 창을 유지해야 하므로 크기 조정을 건너뛰고,
+  // 끝나면(focusActive가 false로 바뀌면) 원래 크기로 되돌립니다.
   useEffect(() => {
+    if (focusActive) return;
     applyZoom(zoomLevel);
     const t1 = setTimeout(() => applyZoom(zoomLevel), 100);
     const t2 = setTimeout(() => applyZoom(zoomLevel), 400);
@@ -282,7 +292,18 @@ export default function App() {
       clearTimeout(t1);
       clearTimeout(t2);
     };
-  }, [zoomLevel, isFlowMode]);
+  }, [zoomLevel, isFlowMode, focusActive]);
+
+  // 15분 집중: 남은 시간을 갱신합니다. 소리는 내지 않습니다.
+  useEffect(() => {
+    if (!focusActive) return;
+    const end = Date.now() + FOCUS_TOTAL_SEC * 1000;
+    setFocusRemaining(FOCUS_TOTAL_SEC);
+    const timer = setInterval(() => {
+      setFocusRemaining(Math.max(0, Math.ceil((end - Date.now()) / 1000)));
+    }, 250);
+    return () => clearInterval(timer);
+  }, [focusActive]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -343,13 +364,13 @@ export default function App() {
     async function updateWindow() {
       try {
         const { getCurrentWindow } = await import('@tauri-apps/api/window');
-        await getCurrentWindow().setAlwaysOnTop(alwaysOnTop);
+        await getCurrentWindow().setAlwaysOnTop(alwaysOnTop || focusActive);
       } catch (e) {
         console.log("Window API not available", e);
       }
     }
     updateWindow();
-  }, [alwaysOnTop]);
+  }, [alwaysOnTop, focusActive]);
 
   const tickSchedule = (now: Date) => {
     // 날짜가 바뀌면(자정) 알람 발송 기록 초기화
@@ -443,6 +464,44 @@ export default function App() {
     }
   };
 
+  // 창을 작은 정사각형으로 바꿉니다. 위치는 그대로 두고, 원래 크기는 focusActive가 꺼질 때 applyZoom이 복원합니다.
+  const shrinkWindowForFocus = async () => {
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      const { LogicalSize } = await import('@tauri-apps/api/dpi');
+      const win = getCurrentWindow();
+      await win.setResizable(true);
+      await win.setMinSize(null);
+      await win.setMaxSize(null);
+      await win.setSize(new LogicalSize(FOCUS_WIDGET_SIZE, FOCUS_WIDGET_SIZE));
+
+      // 플랫폼에 따라 set_size가 타이틀 바를 포함할 수 있어 웹뷰 영역이 정사각형이 되도록 보정합니다.
+      await new Promise(resolve => setTimeout(resolve, 80));
+      const dw = FOCUS_WIDGET_SIZE - window.innerWidth;
+      const dh = FOCUS_WIDGET_SIZE - window.innerHeight;
+      const fixed = new LogicalSize(FOCUS_WIDGET_SIZE + dw, FOCUS_WIDGET_SIZE + dh);
+      if (dw !== 0 || dh !== 0) await win.setSize(fixed);
+      await win.setMinSize(fixed);
+      await win.setMaxSize(fixed);
+      await win.setResizable(false);
+    } catch (e) {
+      console.log("Focus window resize failed", e);
+    }
+  };
+
+  const startFocus = () => {
+    if (isRunning || !isFlowMode || focusActive) return;
+    (document.body.style as any).zoom = '1';
+    setFocusRemaining(FOCUS_TOTAL_SEC);
+    setFocusActive(true);
+    shrinkWindowForFocus();
+  };
+
+  const endFocus = () => {
+    setFocusActive(false);
+    setFocusRemaining(FOCUS_TOTAL_SEC);
+  };
+
   const toggleMode = () => {
     if (isRunning) return;
     const nextMode = !isFlowMode;
@@ -532,6 +591,9 @@ export default function App() {
 
   return (
     <div className="app">
+      {focusActive && (
+        <FocusOverlay remainingSec={focusRemaining} totalSec={FOCUS_TOTAL_SEC} onExit={endFocus} />
+      )}
       <div className="header">
         <div className="header-left">
           <div className="zoom-controls">
@@ -561,9 +623,22 @@ export default function App() {
         <div className="next">{nextLabel}</div>
       </div>
       <div className="mode-row">
-        <div>
-          <div className="session-info">{sessionText}</div>
-          {!isFlowMode && <div className="schedule-header">오늘 스케줄</div>}
+        <div className="mode-row-left">
+          {isFlowMode && (
+            <button
+              type="button"
+              className="focus-btn"
+              onClick={startFocus}
+              disabled={isRunning}
+              title={isRunning ? "알람 중에는 사용할 수 없습니다" : "소리 없이 15분 동안 집중합니다"}
+            >
+              ◎ 15분 집중
+            </button>
+          )}
+          <div>
+            <div className="session-info">{sessionText}</div>
+            {!isFlowMode && <div className="schedule-header">오늘 스케줄</div>}
+          </div>
         </div>
         <button className="mode-btn" onClick={toggleMode} style={{ opacity: isRunning ? 0.5 : 1, cursor: isRunning ? 'not-allowed' : 'pointer' }}>
           {isFlowMode ? "스케줄 모드" : "플로우 모드"}
