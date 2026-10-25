@@ -30,6 +30,13 @@ body {
   box-sizing: border-box;
 }
 
+/* 창 크기를 맞추는 동안에는 트랜지션을 꺼서 측정값이 시점마다 달라지지 않게 합니다. */
+html.resizing *,
+html.resizing *::before,
+html.resizing *::after {
+  transition: none !important;
+}
+
 button {
   cursor: pointer;
   font-family: inherit;
@@ -80,7 +87,12 @@ button {
 }
 
 .main-content.flow {
-  overflow-y: auto !important;
+  overflow: hidden !important;
+}
+
+/* 플로우 모드는 창 높이가 고정이라 스크롤이 필요 없으므로, 드롭다운이 열리면 잘리지 않고 위에 표시 */
+.main-content.flow:has(.custom-select.is-open) {
+  overflow: visible !important;
 }
 .main-content.flow::-webkit-scrollbar {
   display: none !important;
@@ -339,6 +351,71 @@ button {
 .mode-btn:hover {
   background: var(--purple-light);
   box-shadow: 0 0 10px var(--purple-glow);
+}
+
+.mode-row-left {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+/* 15분 집중 시작 버튼: 눈에 덜 띄는 테두리만 있는 작은 알약 모양 */
+.focus-btn {
+  background: transparent;
+  color: var(--purple-main);
+  border: 1px solid var(--border-focus);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-weight: 600;
+  font-size: 12px;
+  transition: 0.2s;
+}
+.focus-btn:hover:not(:disabled) {
+  border-color: var(--purple-main);
+  background: var(--purple-light);
+}
+.focus-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 15분 집중: 창 전체를 덮는 추상적인 움직임 */
+.focus-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  animation: focusFadeIn 2s ease forwards;
+}
+
+.focus-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.focus-time {
+  position: relative;
+  font-size: 28px;
+  font-weight: 300;
+  letter-spacing: 2px;
+  color: rgba(255, 255, 255, 0.45);
+  font-variant-numeric: tabular-nums;
+  transition: opacity 3s ease;
+}
+
+.focus-overlay.done .focus-time {
+  opacity: 0;
+}
+
+@keyframes focusFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 

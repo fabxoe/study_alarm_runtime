@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import "./App.css";
+import FocusOverlay from "./FocusOverlay";
 
 const SCHEDULE = [
   { time: "10:00", title: "공부 시작", type: "lecture", label: "강의" },
@@ -19,6 +20,10 @@ const SCHEDULE = [
   { time: "18:00", title: "공부 시작 (40분간)", type: "study", label: "공부" },
   { time: "18:40", title: "완료", type: "done", label: "완료" },
 ];
+
+const FOCUS_TOTAL_SEC = 15 * 60;
+// 집중 위젯 창의 한 변(논리 px)
+const FOCUS_WIDGET_SIZE = 280;
 
 type AlarmAudioSettings = {
   playSound: boolean;
@@ -102,7 +107,7 @@ const CustomSelect = ({ value, options, onChange, disabled = false, dropUp = fal
 
 export default function App() {
   const [currentTime, setCurrentTime] = useState("");
-  const [isFlowMode, setIsFlowMode] = useState(false);
+  const [isFlowMode, setIsFlowMode] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
 
   const [countdownStr, setCountdownStr] = useState("--:--");
@@ -123,6 +128,8 @@ export default function App() {
   const [volume, setVolume] = useState(80);
   const [statusMsg, setStatusMsg] = useState("⏸ 알람 비활성");
   const [zoomLevel, setZoomLevel] = useState(1.0);
+  const [focusActive, setFocusActive] = useState(false);
+  const [focusRemaining, setFocusRemaining] = useState(FOCUS_TOTAL_SEC);
 
   // 타이머 콜백에서도 가장 최근 설정을 읽도록 별도 ref에 동기화합니다.
   // 각 입력 핸들러에서도 즉시 갱신하므로 상태 렌더 전에 알람이 발생해도
@@ -176,7 +183,18 @@ export default function App() {
     };
   }, [handleZoomIn, handleZoomOut, handleZoomReset]);
 
-  const applyZoom = async (zoom: number) => {
+  // 창 크기 조정은 호출을 직렬화하고, 직전과 같은 크기면 건너뛰며, 알아낸 타이틀 바 부족분을 기억합니다.
+  // 모드 전환 때 여러 번 호출돼도 창 높이가 왔다갔다(들썩임)하지 않게 하기 위함입니다.
+  const applyQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const lastAppliedRef = useRef("");
+  const titleBarExtraRef = useRef(0);
+
+  const applyZoom = (zoom: number) => {
+    applyQueueRef.current = applyQueueRef.current.then(() => runApplyZoom(zoom));
+    return applyQueueRef.current;
+  };
+
+  const runApplyZoom = async (zoom: number) => {
     try {
       const isFlow = isFlowModeRef.current;
       const appEl = document.querySelector('.app') as HTMLElement;
@@ -198,11 +216,25 @@ export default function App() {
       // WebView2의 getBoundingClientRect()에는 CSS zoom이 이미 반영되므로 다시 zoom을
       // 곱하면 Windows에서 창이 과도하게 커지고 하단에 빈 공간이 생깁니다.
       void appEl.offsetHeight;
-      const naturalRenderedHeight = Math.ceil(appEl.getBoundingClientRect().height);
+      // 플랫폼에 따라 getBoundingClientRect()가 zoom을 반영하는지 다르므로(WebView2는 반영,
+      // macOS WKWebView는 미반영) 기준 요소로 실제 반영 비율을 측정해 보정합니다.
+      const probe = document.createElement('div');
+      probe.style.cssText = 'position:absolute;visibility:hidden;width:1px;height:100px;';
+      document.body.appendChild(probe);
+      const rectScale = probe.getBoundingClientRect().height / 100;
+      probe.remove();
+      // 100vh가 화면에 실제로 그려지는 높이도 플랫폼마다 달라서(zoom이 vh에 곱해지는지 여부) 같은 방식으로 측정합니다.
+      const vhProbe = document.createElement('div');
+      vhProbe.style.cssText = 'position:absolute;visibility:hidden;width:1px;height:100vh;';
+      document.body.appendChild(vhProbe);
+      const renderedPer100vh = vhProbe.getBoundingClientRect().height * (zoom / rectScale);
+      vhProbe.remove();
+      const vhScale = renderedPer100vh / window.innerHeight;
+      const naturalRenderedHeight = Math.ceil(appEl.getBoundingClientRect().height * (zoom / rectScale));
 
       // body의 CSS zoom은 100vh 자체도 함께 확대/축소합니다. 앱 높이에 역배율을
       // 적용해야 확대율과 관계없이 렌더링된 앱이 실제 웹뷰 높이를 정확히 채웁니다.
-      appEl.style.setProperty('height', `${100 / zoom}vh`, 'important');
+      appEl.style.setProperty('height', `${100 / vhScale}vh`, 'important');
       if (mainContentEl) {
         mainContentEl.style.removeProperty('height');
         mainContentEl.style.removeProperty('flex');
@@ -219,7 +251,7 @@ export default function App() {
         win.scaleFactor(),
       ]);
       const titleBarHeight = Math.max(0, (outerSize.height - innerSize.height) / scaleFactor);
-      const naturalOuterHeight = Math.ceil(naturalRenderedHeight + titleBarHeight);
+      const naturalOuterHeight = Math.ceil(naturalRenderedHeight + titleBarHeight + titleBarExtraRef.current);
 
       // 현재 모니터의 메뉴 바/Dock을 제외한 영역을 최대 높이로 사용합니다.
       const availableHeight = Math.max(480, Math.floor(window.screen.availHeight - 12));
@@ -227,7 +259,13 @@ export default function App() {
       const minHeight = isFlow
         ? targetHeight
         : Math.min(targetHeight, Math.max(480, Math.ceil(520 * zoom)));
-      const maxHeight = isFlow ? targetHeight : availableHeight;
+      // 콘텐츠 높이(모니터 높이로 제한)를 최대값으로 두어 스크롤이 필요 없는 길이 이상으로 늘어나지 않게 합니다.
+      const maxHeight = targetHeight;
+
+      // 이미 같은 크기로 맞춰져 있으면 창을 건드리지 않습니다.
+      const appliedKey = (min: number, max: number, target: number) =>
+        JSON.stringify([zoom, isFlow, min, max, target]);
+      if (lastAppliedRef.current === appliedKey(minHeight, maxHeight, targetHeight)) return;
 
       const { invoke } = await import("@tauri-apps/api/core");
       await invoke("update_window_config", {
@@ -237,21 +275,65 @@ export default function App() {
         targetH: targetHeight,
         resizable: !isFlow,
       });
+      lastAppliedRef.current = appliedKey(minHeight, maxHeight, targetHeight);
+
+      // macOS에서 outerSize와 innerSize가 같게 보고되어 타이틀 바 높이가 0으로 계산되면
+      // 웹뷰가 그만큼 짧아져 콘텐츠가 잘립니다. 실제 웹뷰 높이로 부족분을 보정합니다.
+      if (targetHeight === naturalOuterHeight) {
+        await new Promise(resolve => setTimeout(resolve, 60));
+        const shortfall = Math.ceil(naturalRenderedHeight - window.innerHeight);
+        if (shortfall > 0 && shortfall <= 80) {
+          // 부족분을 기억해 두면 다음 계산부터 처음부터 올바른 높이로 맞춥니다.
+          titleBarExtraRef.current += shortfall;
+          // 다음 계산과 같은 공식으로 구해야 같은 크기로 인식해 건너뜁니다.
+          const fixedTarget = targetHeight + shortfall;
+          const fixedMin = isFlow
+            ? fixedTarget
+            : Math.min(fixedTarget, Math.max(480, Math.ceil(520 * zoom)));
+          await invoke("update_window_config", {
+            zoom,
+            minH: fixedMin,
+            maxH: fixedTarget,
+            targetH: fixedTarget,
+            resizable: !isFlow,
+          });
+          lastAppliedRef.current = appliedKey(fixedMin, fixedTarget, fixedTarget);
+        }
+      }
     } catch (e) {
       console.log("Zoom API failed", e);
     }
   };
 
   // 줌 또는 모드 변경 시 다단계로 크기 조정 (렌더링 시점 이슈 방지)
+  // 집중 위젯 중에는 정사각형 창을 유지해야 하므로 크기 조정을 건너뛰고,
+  // 끝나면(focusActive가 false로 바뀌면) 원래 크기로 되돌립니다.
   useEffect(() => {
+    if (focusActive) return;
+    // 확대/축소 직후 요소들이 트랜지션으로 천천히 크기가 바뀌면 측정값이 시점마다 달라지므로,
+    // 크기를 맞추는 동안에는 트랜지션을 꺼서 처음부터 최종 크기로 측정합니다.
+    document.documentElement.classList.add('resizing');
     applyZoom(zoomLevel);
     const t1 = setTimeout(() => applyZoom(zoomLevel), 100);
     const t2 = setTimeout(() => applyZoom(zoomLevel), 400);
+    const t3 = setTimeout(() => document.documentElement.classList.remove('resizing'), 600);
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
+      clearTimeout(t3);
     };
-  }, [zoomLevel, isFlowMode]);
+  }, [zoomLevel, isFlowMode, focusActive]);
+
+  // 15분 집중: 남은 시간을 갱신합니다. 소리는 내지 않습니다.
+  useEffect(() => {
+    if (!focusActive) return;
+    const end = Date.now() + FOCUS_TOTAL_SEC * 1000;
+    setFocusRemaining(FOCUS_TOTAL_SEC);
+    const timer = setInterval(() => {
+      setFocusRemaining(Math.max(0, Math.ceil((end - Date.now()) / 1000)));
+    }, 250);
+    return () => clearInterval(timer);
+  }, [focusActive]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -312,13 +394,13 @@ export default function App() {
     async function updateWindow() {
       try {
         const { getCurrentWindow } = await import('@tauri-apps/api/window');
-        await getCurrentWindow().setAlwaysOnTop(alwaysOnTop);
+        await getCurrentWindow().setAlwaysOnTop(alwaysOnTop || focusActive);
       } catch (e) {
         console.log("Window API not available", e);
       }
     }
     updateWindow();
-  }, [alwaysOnTop]);
+  }, [alwaysOnTop, focusActive]);
 
   const tickSchedule = (now: Date) => {
     // 날짜가 바뀌면(자정) 알람 발송 기록 초기화
@@ -412,6 +494,49 @@ export default function App() {
     }
   };
 
+  // 창을 작은 정사각형으로 바꿉니다. 위치는 그대로 두고, 원래 크기는 focusActive가 꺼질 때 applyZoom이 복원합니다.
+  const shrinkWindowForFocus = async () => {
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      const { LogicalSize } = await import('@tauri-apps/api/dpi');
+      const win = getCurrentWindow();
+      await win.setResizable(true);
+      await win.setMinSize(null);
+      await win.setMaxSize(null);
+      // 이미 알아낸 타이틀 바 부족분을 처음부터 더해 두 번 크기가 바뀌지 않게 합니다.
+      await win.setSize(new LogicalSize(FOCUS_WIDGET_SIZE, FOCUS_WIDGET_SIZE + titleBarExtraRef.current));
+
+      // 플랫폼에 따라 set_size가 타이틀 바를 포함할 수 있어 웹뷰 영역이 정사각형이 되도록 보정합니다.
+      await new Promise(resolve => setTimeout(resolve, 80));
+      const dw = FOCUS_WIDGET_SIZE - window.innerWidth;
+      const dh = FOCUS_WIDGET_SIZE - window.innerHeight;
+      // 최소/최대 크기는 "280 + 보정값"이 아니라 실제 창(outer) 크기를 기준으로 고정합니다.
+      const [outer, scale] = await Promise.all([win.outerSize(), win.scaleFactor()]);
+      const fixed = new LogicalSize(outer.width / scale + dw, outer.height / scale + dh);
+      if (dw !== 0 || dh !== 0) await win.setSize(fixed);
+      await win.setMinSize(fixed);
+      await win.setMaxSize(fixed);
+      await win.setResizable(false);
+    } catch (e) {
+      console.log("Focus window resize failed", e);
+    }
+  };
+
+  const startFocus = () => {
+    if (isRunning || !isFlowMode || focusActive) return;
+    (document.body.style as any).zoom = '1';
+    // 위젯이 창 크기를 바꾸므로, 끝난 뒤 같은 크기라고 건너뛰지 않도록 기록을 지웁니다.
+    lastAppliedRef.current = "";
+    setFocusRemaining(FOCUS_TOTAL_SEC);
+    setFocusActive(true);
+    shrinkWindowForFocus();
+  };
+
+  const endFocus = () => {
+    setFocusActive(false);
+    setFocusRemaining(FOCUS_TOTAL_SEC);
+  };
+
   const toggleMode = () => {
     if (isRunning) return;
     const nextMode = !isFlowMode;
@@ -501,6 +626,9 @@ export default function App() {
 
   return (
     <div className="app">
+      {focusActive && (
+        <FocusOverlay remainingSec={focusRemaining} totalSec={FOCUS_TOTAL_SEC} onExit={endFocus} />
+      )}
       <div className="header">
         <div className="header-left">
           <div className="zoom-controls">
@@ -530,9 +658,22 @@ export default function App() {
         <div className="next">{nextLabel}</div>
       </div>
       <div className="mode-row">
-        <div>
-          <div className="session-info">{sessionText}</div>
-          {!isFlowMode && <div className="schedule-header">오늘 스케줄</div>}
+        <div className="mode-row-left">
+          {isFlowMode && (
+            <button
+              type="button"
+              className="focus-btn"
+              onClick={startFocus}
+              disabled={isRunning}
+              title={isRunning ? "알람 중에는 사용할 수 없습니다" : "소리 없이 15분 동안 집중합니다"}
+            >
+              ◎ 15분 집중
+            </button>
+          )}
+          <div>
+            <div className="session-info">{sessionText}</div>
+            {!isFlowMode && <div className="schedule-header">오늘 스케줄</div>}
+          </div>
         </div>
         <button className="mode-btn" onClick={toggleMode} style={{ opacity: isRunning ? 0.5 : 1, cursor: isRunning ? 'not-allowed' : 'pointer' }}>
           {isFlowMode ? "스케줄 모드" : "플로우 모드"}
