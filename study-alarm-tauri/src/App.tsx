@@ -107,7 +107,7 @@ const CustomSelect = ({ value, options, onChange, disabled = false, dropUp = fal
 
 export default function App() {
   const [currentTime, setCurrentTime] = useState("");
-  const [isFlowMode, setIsFlowMode] = useState(false);
+  const [isFlowMode, setIsFlowMode] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
 
   const [countdownStr, setCountdownStr] = useState("--:--");
