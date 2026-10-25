@@ -183,7 +183,18 @@ export default function App() {
     };
   }, [handleZoomIn, handleZoomOut, handleZoomReset]);
 
-  const applyZoom = async (zoom: number) => {
+  // 창 크기 조정은 호출을 직렬화하고, 직전과 같은 크기면 건너뛰며, 알아낸 타이틀 바 부족분을 기억합니다.
+  // 모드 전환 때 여러 번 호출돼도 창 높이가 왔다갔다(들썩임)하지 않게 하기 위함입니다.
+  const applyQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const lastAppliedRef = useRef("");
+  const titleBarExtraRef = useRef(0);
+
+  const applyZoom = (zoom: number) => {
+    applyQueueRef.current = applyQueueRef.current.then(() => runApplyZoom(zoom));
+    return applyQueueRef.current;
+  };
+
+  const runApplyZoom = async (zoom: number) => {
     try {
       const isFlow = isFlowModeRef.current;
       const appEl = document.querySelector('.app') as HTMLElement;
@@ -240,7 +251,7 @@ export default function App() {
         win.scaleFactor(),
       ]);
       const titleBarHeight = Math.max(0, (outerSize.height - innerSize.height) / scaleFactor);
-      const naturalOuterHeight = Math.ceil(naturalRenderedHeight + titleBarHeight);
+      const naturalOuterHeight = Math.ceil(naturalRenderedHeight + titleBarHeight + titleBarExtraRef.current);
 
       // 현재 모니터의 메뉴 바/Dock을 제외한 영역을 최대 높이로 사용합니다.
       const availableHeight = Math.max(480, Math.floor(window.screen.availHeight - 12));
@@ -251,6 +262,11 @@ export default function App() {
       // 콘텐츠 높이(모니터 높이로 제한)를 최대값으로 두어 스크롤이 필요 없는 길이 이상으로 늘어나지 않게 합니다.
       const maxHeight = targetHeight;
 
+      // 이미 같은 크기로 맞춰져 있으면 창을 건드리지 않습니다.
+      const appliedKey = (min: number, max: number, target: number) =>
+        JSON.stringify([zoom, isFlow, min, max, target]);
+      if (lastAppliedRef.current === appliedKey(minHeight, maxHeight, targetHeight)) return;
+
       const { invoke } = await import("@tauri-apps/api/core");
       await invoke("update_window_config", {
         zoom,
@@ -259,6 +275,7 @@ export default function App() {
         targetH: targetHeight,
         resizable: !isFlow,
       });
+      lastAppliedRef.current = appliedKey(minHeight, maxHeight, targetHeight);
 
       // macOS에서 outerSize와 innerSize가 같게 보고되어 타이틀 바 높이가 0으로 계산되면
       // 웹뷰가 그만큼 짧아져 콘텐츠가 잘립니다. 실제 웹뷰 높이로 부족분을 보정합니다.
@@ -266,13 +283,21 @@ export default function App() {
         await new Promise(resolve => setTimeout(resolve, 60));
         const shortfall = Math.ceil(naturalRenderedHeight - window.innerHeight);
         if (shortfall > 0 && shortfall <= 80) {
+          // 부족분을 기억해 두면 다음 계산부터 처음부터 올바른 높이로 맞춥니다.
+          titleBarExtraRef.current += shortfall;
+          // 다음 계산과 같은 공식으로 구해야 같은 크기로 인식해 건너뜁니다.
+          const fixedTarget = targetHeight + shortfall;
+          const fixedMin = isFlow
+            ? fixedTarget
+            : Math.min(fixedTarget, Math.max(480, Math.ceil(520 * zoom)));
           await invoke("update_window_config", {
             zoom,
-            minH: minHeight + shortfall,
-            maxH: maxHeight + shortfall,
-            targetH: targetHeight + shortfall,
+            minH: fixedMin,
+            maxH: fixedTarget,
+            targetH: fixedTarget,
             resizable: !isFlow,
           });
+          lastAppliedRef.current = appliedKey(fixedMin, fixedTarget, fixedTarget);
         }
       }
     } catch (e) {
@@ -285,12 +310,17 @@ export default function App() {
   // 끝나면(focusActive가 false로 바뀌면) 원래 크기로 되돌립니다.
   useEffect(() => {
     if (focusActive) return;
+    // 확대/축소 직후 요소들이 트랜지션으로 천천히 크기가 바뀌면 측정값이 시점마다 달라지므로,
+    // 크기를 맞추는 동안에는 트랜지션을 꺼서 처음부터 최종 크기로 측정합니다.
+    document.documentElement.classList.add('resizing');
     applyZoom(zoomLevel);
     const t1 = setTimeout(() => applyZoom(zoomLevel), 100);
     const t2 = setTimeout(() => applyZoom(zoomLevel), 400);
+    const t3 = setTimeout(() => document.documentElement.classList.remove('resizing'), 600);
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
+      clearTimeout(t3);
     };
   }, [zoomLevel, isFlowMode, focusActive]);
 
@@ -473,13 +503,16 @@ export default function App() {
       await win.setResizable(true);
       await win.setMinSize(null);
       await win.setMaxSize(null);
-      await win.setSize(new LogicalSize(FOCUS_WIDGET_SIZE, FOCUS_WIDGET_SIZE));
+      // 이미 알아낸 타이틀 바 부족분을 처음부터 더해 두 번 크기가 바뀌지 않게 합니다.
+      await win.setSize(new LogicalSize(FOCUS_WIDGET_SIZE, FOCUS_WIDGET_SIZE + titleBarExtraRef.current));
 
       // 플랫폼에 따라 set_size가 타이틀 바를 포함할 수 있어 웹뷰 영역이 정사각형이 되도록 보정합니다.
       await new Promise(resolve => setTimeout(resolve, 80));
       const dw = FOCUS_WIDGET_SIZE - window.innerWidth;
       const dh = FOCUS_WIDGET_SIZE - window.innerHeight;
-      const fixed = new LogicalSize(FOCUS_WIDGET_SIZE + dw, FOCUS_WIDGET_SIZE + dh);
+      // 최소/최대 크기는 "280 + 보정값"이 아니라 실제 창(outer) 크기를 기준으로 고정합니다.
+      const [outer, scale] = await Promise.all([win.outerSize(), win.scaleFactor()]);
+      const fixed = new LogicalSize(outer.width / scale + dw, outer.height / scale + dh);
       if (dw !== 0 || dh !== 0) await win.setSize(fixed);
       await win.setMinSize(fixed);
       await win.setMaxSize(fixed);
@@ -492,6 +525,8 @@ export default function App() {
   const startFocus = () => {
     if (isRunning || !isFlowMode || focusActive) return;
     (document.body.style as any).zoom = '1';
+    // 위젯이 창 크기를 바꾸므로, 끝난 뒤 같은 크기라고 건너뛰지 않도록 기록을 지웁니다.
+    lastAppliedRef.current = "";
     setFocusRemaining(FOCUS_TOTAL_SEC);
     setFocusActive(true);
     shrinkWindowForFocus();

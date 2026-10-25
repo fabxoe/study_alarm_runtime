@@ -30,6 +30,13 @@ body {
   box-sizing: border-box;
 }
 
+/* 창 크기를 맞추는 동안에는 트랜지션을 꺼서 측정값이 시점마다 달라지지 않게 합니다. */
+html.resizing *,
+html.resizing *::before,
+html.resizing *::after {
+  transition: none !important;
+}
+
 button {
   cursor: pointer;
   font-family: inherit;
